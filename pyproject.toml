@@ -43,7 +43,7 @@ classifiers = [
 dev = [
     "black",
     "isort",
-    "ruff",
+    "pre-commit",
 ]
 
 [project.urls]
@@ -64,19 +64,3 @@ target-version = ['py39', 'py310', 'py311', 'py312']
 [tool.isort]
 profile = "black"
 line_length = 88
-
-[tool.ruff]
-line-length = 88
-target-version = "py39"
-select = [
-    "E",    # pycodestyle errors
-    "W",    # pycodestyle warnings
-    "F",    # pyflakes
-    "I",    # isort
-    "B",    # flake8-bugbear
-    "C4",   # flake8-comprehensions
-    "UP",   # pyupgrade
-]
-ignore = [
-    "E501",  # line too long, handled by black
-]

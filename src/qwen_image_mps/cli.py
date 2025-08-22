@@ -125,9 +125,10 @@ def get_custom_lora_path(lora_spec):
     Returns:
         Path to the LoRA file (local or downloaded), or None if failed
     """
-    from huggingface_hub import hf_hub_download
     import re
     from pathlib import Path
+
+    from huggingface_hub import hf_hub_download
 
     # Check if it's a local file path (handles both absolute and ~ paths)
     lora_path = Path(lora_spec).expanduser()
@@ -539,7 +540,7 @@ def generate_image(args) -> None:
         ]
         batman_action = random.choice(batman_additions)
         prompt = prompt + batman_action
-        print(f"\n🦇 BATMAN MODE ACTIVATED: Adding surprise LEGO Batman photobomb!")
+        print("\n🦇 BATMAN MODE ACTIVATED: Adding surprise LEGO Batman photobomb!")
 
     negative_prompt = (
         " "  # using an empty string if you do not have specific concept to remove
@@ -695,7 +696,7 @@ def edit_image(args) -> None:
         ]
         batman_edit = random.choice(batman_edits)
         edit_prompt = args.prompt + batman_edit
-        print(f"\n🦇 BATMAN MODE ACTIVATED: LEGO Batman will photobomb this edit!")
+        print("\n🦇 BATMAN MODE ACTIVATED: LEGO Batman will photobomb this edit!")
 
     # Perform image editing
     print(f"Editing image with prompt: {edit_prompt}")
