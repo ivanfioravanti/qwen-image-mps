@@ -655,7 +655,6 @@ def get_gguf_model_path(quantization: str, edit_mode: bool = False):
 
     try:
         gguf_path = hf_hub_download(
-            #repo_id="city96/Qwen-Image-gguf",
             repo_id=repo_id,
             filename=filename,
             repo_type="model",
