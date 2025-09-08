@@ -457,6 +457,16 @@ def merge_lora_from_safetensors(pipe, lora_path):
                 merged_count += 1
 
     print(f"Merged {merged_count} LoRA weights into the model")
+
+    # memory purge
+    del lora_state_dict, lora_keys
+    if torch.backends.mps.is_available():
+        torch.mps.empty_cache()
+    elif torch.cuda.is_available():
+        torch.cuda.empty_cache()
+    import gc
+    gc.collect()
+
     return pipe
 
 
@@ -585,43 +595,68 @@ def get_device_and_dtype():
         return "cpu", torch.float32
 
 
-def get_gguf_model_path(quantization: str):
+def get_gguf_model_path(quantization: str, edit_mode: bool = False):
     """Download and return path to GGUF quantized model.
 
     Args:
         quantization: Quantization level (e.g., 'Q4_0', 'Q8_0')
+        edit_mode: Whether to get edit model (Qwen-Image-Edit) or generate model (Qwen-Image)
 
     Returns:
         Path to the downloaded GGUF file
     """
     from huggingface_hub import hf_hub_download
 
-    # Map quantization levels to filenames (lowercase 'qwen-image')
-    gguf_files = {
-        "Q2_K": "qwen-image-Q2_K.gguf",
-        "Q3_K_S": "qwen-image-Q3_K_S.gguf",
-        "Q3_K_M": "qwen-image-Q3_K_M.gguf",
-        "Q4_0": "qwen-image-Q4_0.gguf",
-        "Q4_1": "qwen-image-Q4_1.gguf",
-        "Q4_K_S": "qwen-image-Q4_K_S.gguf",
-        "Q4_K_M": "qwen-image-Q4_K_M.gguf",
-        "Q5_0": "qwen-image-Q5_0.gguf",
-        "Q5_1": "qwen-image-Q5_1.gguf",
-        "Q5_K_S": "qwen-image-Q5_K_S.gguf",
-        "Q5_K_M": "qwen-image-Q5_K_M.gguf",
-        "Q6_K": "qwen-image-Q6_K.gguf",
-        "Q8_0": "qwen-image-Q8_0.gguf",
-    }
+    # Different repo and files for edit vs generate mode
+    if edit_mode:
+        # Qwen-Image-Edit GGUF files from calcuis
+        repo_id = "calcuis/qwen-image-edit-gguf"
+        gguf_files = {
+            "Q2_K": "qwen-image-edit-q2_k.gguf",
+            "Q2_K_S": "qwen-image-edit-q2_k_s.gguf",
+            "Q3_K_S": "qwen-image-edit-q3_k_s.gguf",
+            "Q3_K_M": "qwen-image-edit-q3_k_m.gguf",
+            "Q3_K_L": "qwen-image-edit-q3_k_l.gguf",
+            "Q4_0": "qwen-image-edit-q4_0.gguf",
+            "Q4_1": "qwen-image-edit-q4_1.gguf",
+            "Q4_K_S": "qwen-image-edit-q4_k_s.gguf",
+            "Q4_K_M": "qwen-image-edit-q4_k_m.gguf",
+            "Q5_0": "qwen-image-edit-q5_0.gguf",
+            "Q5_1": "qwen-image-edit-q5_1.gguf",
+            "Q5_K_S": "qwen-image-edit-q5_k_s.gguf",
+            "Q5_K_M": "qwen-image-edit-q5_k_m.gguf",
+            "Q6_K": "qwen-image-edit-q6_k.gguf",
+            "Q8_0": "qwen-image-edit-q8_0.gguf",
+        }
+    else:
+        # Qwen-Image GGUF files from city96
+        repo_id = "city96/Qwen-Image-gguf"
+        gguf_files = {
+            "Q2_K": "qwen-image-Q2_K.gguf",
+            "Q3_K_S": "qwen-image-Q3_K_S.gguf",
+            "Q3_K_M": "qwen-image-Q3_K_M.gguf",
+            "Q4_0": "qwen-image-Q4_0.gguf",
+            "Q4_1": "qwen-image-Q4_1.gguf",
+            "Q4_K_S": "qwen-image-Q4_K_S.gguf",
+            "Q4_K_M": "qwen-image-Q4_K_M.gguf",
+            "Q5_0": "qwen-image-Q5_0.gguf",
+            "Q5_1": "qwen-image-Q5_1.gguf",
+            "Q5_K_S": "qwen-image-Q5_K_S.gguf",
+            "Q5_K_M": "qwen-image-Q5_K_M.gguf",
+            "Q6_K": "qwen-image-Q6_K.gguf",
+            "Q8_0": "qwen-image-Q8_0.gguf",
+        }
 
     if quantization not in gguf_files:
         raise ValueError(f"Unsupported quantization level: {quantization}")
 
     filename = gguf_files[quantization]
-    print(f"Downloading GGUF model with {quantization} quantization...")
+    print(f"Downloading GGUF {'edit' if edit_mode else 'generate'} model with {quantization} quantization from {repo_id}...")
 
     try:
         gguf_path = hf_hub_download(
-            repo_id="city96/Qwen-Image-gguf",
+            #repo_id="city96/Qwen-Image-gguf",
+            repo_id=repo_id,
             filename=filename,
             repo_type="model",
         )
@@ -666,7 +701,7 @@ def load_gguf_pipeline(quantization: str, device, torch_dtype, edit_mode=False):
         return None
 
     # Get GGUF model path
-    gguf_path = get_gguf_model_path(quantization)
+    gguf_path = get_gguf_model_path(quantization, edit_mode=edit_mode)
     if not gguf_path:
         return None
 
@@ -674,9 +709,42 @@ def load_gguf_pipeline(quantization: str, device, torch_dtype, edit_mode=False):
     quantization_config = GGUFQuantizationConfig(compute_dtype=torch_dtype)
 
     if edit_mode:
-        print("Note: GGUF quantized models for editing are not yet supported.")
-        print("The GGUF models from city96 are for the base Qwen-Image model only.")
-        return None
+        # Load GGUF model for editing
+        from diffusers import QwenImageEditPipeline
+        from diffusers.models import QwenImageTransformer2DModel
+
+        print(f"Loading GGUF quantized Qwen-Image-Edit model ({quantization})...")
+        mem = get_total_memory_estimate(quantization)
+        if mem is not None:
+           print(f"Estimated memory usage: {mem['formatted']}")
+
+        try:
+            # Load transformer from GGUF file
+            print("Loading transformer from GGUF file...")
+            transformer = QwenImageTransformer2DModel.from_single_file(
+                gguf_path,
+                quantization_config=quantization_config,
+                torch_dtype=torch_dtype,
+                config="Qwen/Qwen-Image-Edit",
+                subfolder="transformer",
+            )
+
+            print("Creating edit pipeline with quantized transformer...")
+            # Create edit pipeline with quantized transformer
+            pipeline = QwenImageEditPipeline.from_pretrained(
+                "Qwen/Qwen-Image-Edit",
+                transformer=transformer,
+                torch_dtype=torch_dtype,
+            )
+
+            pipeline = pipeline.to(device)
+            print(f"Successfully loaded GGUF Edit model with {quantization} quantization")
+            return pipeline
+
+        except Exception as e:
+            print(f"Error loading GGUF Edit model: {e}")
+            print("Falling back to standard edit model...")
+            return None
     else:
         # Load GGUF model for generation
         from diffusers import DiffusionPipeline
