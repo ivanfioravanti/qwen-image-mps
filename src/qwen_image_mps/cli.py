@@ -1258,7 +1258,11 @@ def edit_image(args) -> None:
     # Apply custom LoRA if specified
     if args.lora:
         print(f"Loading custom LoRA: {args.lora}")
-        custom_lora_path = get_custom_lora_path(args.lora)
+        if quantization:
+            print("Warning: LoRA loading is not supported with GGUF quantized models.")
+            custom_lora_path = None
+        else: 
+            custom_lora_path = get_custom_lora_path(args.lora)
         if custom_lora_path:
             pipeline = merge_lora_from_safetensors(pipeline, custom_lora_path)
         else:
@@ -1267,7 +1271,11 @@ def edit_image(args) -> None:
     # Apply Lightning LoRA if fast or ultra-fast mode is enabled
     if args.ultra_fast:
         print("Loading Lightning LoRA v1.0 for ultra-fast editing...")
-        lora_path = get_lora_path(ultra_fast=True)
+        if quantization:
+            print("Warning: Lightning LoRA is not compatible with GGUF quantized models.")
+            lora_path = None
+        else:
+            lora_path = get_lora_path(ultra_fast=True)
         if lora_path:
             # Use manual LoRA merging for edit pipeline
             pipeline = merge_lora_from_safetensors(pipeline, lora_path)
@@ -1282,7 +1290,11 @@ def edit_image(args) -> None:
             cfg_scale = 4.0
     elif args.fast:
         print("Loading Lightning Edit LoRA v1.0 for fast editing...")
-        lora_path = get_lora_path(edit_mode=True)
+        if quantization:
+            print("Warning: Lightning LoRA is not compatible with GGUF quantized models.")
+            lora_path = None
+        else:
+            lora_path = get_lora_path(edit_mode=True)
         if lora_path:
             # Use manual LoRA merging for edit pipeline
             pipeline = merge_lora_from_safetensors(pipeline, lora_path)
