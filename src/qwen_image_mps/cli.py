@@ -1255,58 +1255,66 @@ def edit_image(args) -> None:
 
     pipeline.set_progress_bar_config(disable=None)
 
-    # Apply custom LoRA if specified
+    # Apply custom LoRA if specified (skip if using GGUF due to incompatibility)
     if args.lora:
         print(f"Loading custom LoRA: {args.lora}")
         if quantization:
             print("Warning: LoRA loading is not supported with GGUF quantized models.")
+            print("The internal structure of GGUF models differs from standard models.")
+            print("Continuing without LoRA...")
             custom_lora_path = None
         else: 
             custom_lora_path = get_custom_lora_path(args.lora)
-        if custom_lora_path:
-            pipeline = merge_lora_from_safetensors(pipeline, custom_lora_path)
-        else:
-            print("Warning: Could not load custom LoRA, continuing without it...")
+            if custom_lora_path:
+                pipeline = merge_lora_from_safetensors(pipeline, custom_lora_path)
+            else:
+                print("Warning: Could not load custom LoRA, continuing without it...")
 
     # Apply Lightning LoRA if fast or ultra-fast mode is enabled
     if args.ultra_fast:
         print("Loading Lightning LoRA v1.0 for ultra-fast editing...")
         if quantization:
             print("Warning: Lightning LoRA is not compatible with GGUF quantized models.")
+            print("Using GGUF model with standard inference settings...")
+            num_steps = 4  # Still use fewer steps for speed
+            cfg_scale = 1.0
             lora_path = None
         else:
             lora_path = get_lora_path(ultra_fast=True)
-        if lora_path:
-            # Use manual LoRA merging for edit pipeline
-            pipeline = merge_lora_from_safetensors(pipeline, lora_path)
-            # Use fixed 4 steps for Ultra Lightning mode
-            num_steps = 4
-            cfg_scale = 1.0
-            print(f"Ultra-fast mode enabled: {num_steps} steps, CFG scale {cfg_scale}")
-        else:
-            print("Warning: Could not load Lightning LoRA v1.0")
-            print("Falling back to normal editing...")
-            num_steps = args.steps
-            cfg_scale = 4.0
+            if lora_path:
+                # Use manual LoRA merging for edit pipeline
+                pipeline = merge_lora_from_safetensors(pipeline, lora_path)
+                # Use fixed 4 steps for Ultra Lightning mode
+                num_steps = 4
+                cfg_scale = 1.0
+                print(f"Ultra-fast mode enabled: {num_steps} steps, CFG scale {cfg_scale}")
+            else:
+                print("Warning: Could not load Lightning LoRA v1.0")
+                print("Falling back to normal editing...")
+                num_steps = args.steps
+                cfg_scale = 4.0
     elif args.fast:
         print("Loading Lightning Edit LoRA v1.0 for fast editing...")
         if quantization:
             print("Warning: Lightning LoRA is not compatible with GGUF quantized models.")
+            print("Using GGUF model with reduced steps for faster generation...")
+            num_steps = 8  # Still use fewer steps for speed
+            cfg_scale = 1.0
             lora_path = None
         else:
             lora_path = get_lora_path(edit_mode=True)
-        if lora_path:
-            # Use manual LoRA merging for edit pipeline
-            pipeline = merge_lora_from_safetensors(pipeline, lora_path)
-            # Use fixed 8 steps for Lightning Edit mode
-            num_steps = 8
-            cfg_scale = 1.0
-            print(f"Fast edit mode enabled: {num_steps} steps, CFG scale {cfg_scale}")
-        else:
-            print("Warning: Could not load Lightning Edit LoRA v1.0")
-            print("Falling back to normal editing...")
-            num_steps = args.steps
-            cfg_scale = 4.0
+            if lora_path:
+                # Use manual LoRA merging for edit pipeline
+                pipeline = merge_lora_from_safetensors(pipeline, lora_path)
+                # Use fixed 8 steps for Lightning Edit mode
+                num_steps = 8
+                cfg_scale = 1.0
+                print(f"Fast edit mode enabled: {num_steps} steps, CFG scale {cfg_scale}")
+            else:
+                print("Warning: Could not load Lightning Edit LoRA v1.0")
+                print("Falling back to normal editing...")
+                num_steps = args.steps
+                cfg_scale = 4.0
     else:
         num_steps = args.steps
         cfg_scale = 4.0
