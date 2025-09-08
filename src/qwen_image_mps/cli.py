@@ -465,6 +465,7 @@ def merge_lora_from_safetensors(pipe, lora_path):
     elif torch.cuda.is_available():
         torch.cuda.empty_cache()
     import gc
+
     gc.collect()
 
     return pipe
@@ -651,7 +652,9 @@ def get_gguf_model_path(quantization: str, edit_mode: bool = False):
         raise ValueError(f"Unsupported quantization level: {quantization}")
 
     filename = gguf_files[quantization]
-    print(f"Downloading GGUF {'edit' if edit_mode else 'generate'} model with {quantization} quantization from {repo_id}...")
+    print(
+        f"Downloading GGUF {'edit' if edit_mode else 'generate'} model with {quantization} quantization from {repo_id}..."
+    )
 
     try:
         gguf_path = hf_hub_download(
@@ -737,7 +740,9 @@ def load_gguf_pipeline(quantization: str, device, torch_dtype, edit_mode=False):
             )
 
             pipeline = pipeline.to(device)
-            print(f"Successfully loaded GGUF Edit model with {quantization} quantization")
+            print(
+                f"Successfully loaded GGUF Edit model with {quantization} quantization"
+            )
             return pipeline
 
         except Exception as e:
@@ -1273,7 +1278,9 @@ def edit_image(args) -> None:
     if args.ultra_fast:
         print("Loading Lightning LoRA v1.0 for ultra-fast editing...")
         if quantization:
-            print("Warning: Lightning LoRA is not compatible with GGUF quantized models.")
+            print(
+                "Warning: Lightning LoRA is not compatible with GGUF quantized models."
+            )
             print("Using GGUF model with standard inference settings...")
             num_steps = args.steps
             cfg_scale = 4.0
@@ -1286,7 +1293,9 @@ def edit_image(args) -> None:
                 # Use fixed 4 steps for Ultra Lightning mode
                 num_steps = 4
                 cfg_scale = 1.0
-                print(f"Ultra-fast mode enabled: {num_steps} steps, CFG scale {cfg_scale}")
+                print(
+                    f"Ultra-fast mode enabled: {num_steps} steps, CFG scale {cfg_scale}"
+                )
             else:
                 print("Warning: Could not load Lightning LoRA v1.0")
                 print("Falling back to normal editing...")
@@ -1295,7 +1304,9 @@ def edit_image(args) -> None:
     elif args.fast:
         print("Loading Lightning Edit LoRA v1.0 for fast editing...")
         if quantization:
-            print("Warning: Lightning LoRA is not compatible with GGUF quantized models.")
+            print(
+                "Warning: Lightning LoRA is not compatible with GGUF quantized models."
+            )
             print("Using GGUF model with reduced steps for faster generation...")
             num_steps = args.steps
             cfg_scale = 4.0
@@ -1308,7 +1319,9 @@ def edit_image(args) -> None:
                 # Use fixed 8 steps for Lightning Edit mode
                 num_steps = 8
                 cfg_scale = 1.0
-                print(f"Fast edit mode enabled: {num_steps} steps, CFG scale {cfg_scale}")
+                print(
+                    f"Fast edit mode enabled: {num_steps} steps, CFG scale {cfg_scale}"
+                )
             else:
                 print("Warning: Could not load Lightning Edit LoRA v1.0")
                 print("Falling back to normal editing...")
