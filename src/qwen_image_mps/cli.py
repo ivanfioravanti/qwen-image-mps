@@ -1276,8 +1276,8 @@ def edit_image(args) -> None:
         if quantization:
             print("Warning: Lightning LoRA is not compatible with GGUF quantized models.")
             print("Using GGUF model with standard inference settings...")
-            num_steps = 4  # Still use fewer steps for speed
-            cfg_scale = 1.0
+            num_steps = args.steps
+            cfg_scale = 4.0
             lora_path = None
         else:
             lora_path = get_lora_path(ultra_fast=True)
@@ -1298,8 +1298,8 @@ def edit_image(args) -> None:
         if quantization:
             print("Warning: Lightning LoRA is not compatible with GGUF quantized models.")
             print("Using GGUF model with reduced steps for faster generation...")
-            num_steps = 8  # Still use fewer steps for speed
-            cfg_scale = 1.0
+            num_steps = args.steps
+            cfg_scale = 4.0
             lora_path = None
         else:
             lora_path = get_lora_path(edit_mode=True)
