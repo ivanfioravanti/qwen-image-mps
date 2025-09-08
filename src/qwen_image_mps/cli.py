@@ -1262,7 +1262,7 @@ def edit_image(args) -> None:
             print("The internal structure of GGUF models differs from standard models.")
             print("Continuing without LoRA...")
             custom_lora_path = None
-        else: 
+        else:
             custom_lora_path = get_custom_lora_path(args.lora)
             if custom_lora_path:
                 pipeline = merge_lora_from_safetensors(pipeline, custom_lora_path)
