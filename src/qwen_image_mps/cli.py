@@ -716,7 +716,7 @@ def load_gguf_pipeline(quantization: str, device, torch_dtype, edit_mode=False):
         print(f"Loading GGUF quantized Qwen-Image-Edit model ({quantization})...")
         mem = get_total_memory_estimate(quantization)
         if mem is not None:
-           print(f"Estimated memory usage: {mem['formatted']}")
+            print(f"Estimated memory usage: {mem['formatted']}")
 
         try:
             # Load transformer from GGUF file
