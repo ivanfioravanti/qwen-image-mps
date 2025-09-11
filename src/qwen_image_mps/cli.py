@@ -603,10 +603,10 @@ def get_gguf_model_path(quantization: str, edit_mode: bool = False):
         repo_id = "calcuis/qwen-image-edit-gguf"
         gguf_files = {
             "Q2_K": "qwen-image-edit-q2_k.gguf",
-            "Q2_K_S": "qwen-image-edit-q2_k_s.gguf",
+            # "Q2_K_S": "qwen-image-edit-q2_k_s.gguf",
             "Q3_K_S": "qwen-image-edit-q3_k_s.gguf",
             "Q3_K_M": "qwen-image-edit-q3_k_m.gguf",
-            "Q3_K_L": "qwen-image-edit-q3_k_l.gguf",
+            # "Q3_K_L": "qwen-image-edit-q3_k_l.gguf",
             "Q4_0": "qwen-image-edit-q4_0.gguf",
             "Q4_1": "qwen-image-edit-q4_1.gguf",
             "Q4_K_S": "qwen-image-edit-q4_k_s.gguf",
