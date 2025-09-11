@@ -457,17 +457,6 @@ def merge_lora_from_safetensors(pipe, lora_path):
                 merged_count += 1
 
     print(f"Merged {merged_count} LoRA weights into the model")
-
-    # memory purge
-    del lora_state_dict, lora_keys
-    if torch.backends.mps.is_available():
-        torch.mps.empty_cache()
-    elif torch.cuda.is_available():
-        torch.cuda.empty_cache()
-    import gc
-
-    gc.collect()
-
     return pipe
 
 
