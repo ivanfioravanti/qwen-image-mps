@@ -1210,7 +1210,7 @@ def generate_image(args):
                         f"Fast mode enabled: {num_steps} steps, CFG scale {cfg_scale}"
                     )
                 else:
-                    print("Warning: Could not load Lightning LoRA v1.1")
+                    print("Warning: Could not load Lightning LoRA v2.0")
                     print("Falling back to normal generation...")
                     num_steps = args.steps
                     cfg_scale = 4.0
