@@ -6,6 +6,8 @@ from datetime import datetime
 from enum import Enum
 from typing import Optional
 
+import torch
+
 
 class GenerationStep(Enum):
     """Enum for tracking important steps in the image generation process"""
@@ -272,7 +274,6 @@ def get_custom_lora_path(lora_spec):
 def merge_lora_from_safetensors(pipe, lora_path):
     """Merge LoRA weights from safetensors file into the pipeline's transformer."""
     import safetensors.torch
-    import torch
 
     lora_state_dict = safetensors.torch.load_file(lora_path)
 
@@ -577,7 +578,6 @@ def build_edit_parser(subparsers) -> argparse.ArgumentParser:
 
 def get_device_and_dtype():
     """Get the optimal device and dtype for the current system."""
-    import torch
 
     if torch.backends.mps.is_available():
         print("Using MPS")
@@ -660,7 +660,6 @@ def load_gguf_pipeline(quantization: str, device, torch_dtype, edit_mode=False):
 
         Future versions may support quantized text encoders for additional memory savings.
     """
-    import torch
 
     try:
         from diffusers import GGUFQuantizationConfig
@@ -795,7 +794,6 @@ def load_quantized_text_encoder(quantization: str, device, torch_dtype):
     """
 
     try:
-        import torch
         from transformers import AutoModelForCausalLM, BitsAndBytesConfig
 
         if quantization == "4bit":
@@ -1081,7 +1079,6 @@ def get_total_memory_estimate(quantization: str):
 
 def create_generator(device, seed):
     """Create a torch.Generator with the appropriate device."""
-    import torch
 
     generator_device = "cpu" if device == "mps" else device
     return torch.Generator(device=generator_device).manual_seed(seed)
@@ -1294,15 +1291,16 @@ def generate_image(args):
             generator = create_generator(device, per_image_seed)
 
             yield emit_event(GenerationStep.INFERENCE_START)
-            image = pipe(
-                prompt=current_prompt,
-                negative_prompt=negative_prompt,
-                width=width,
-                height=height,
-                num_inference_steps=num_steps,
-                true_cfg_scale=cfg_scale,
-                generator=generator,
-            ).images[0]
+            with torch.inference_mode():
+                image = pipe(
+                    prompt=current_prompt,
+                    negative_prompt=negative_prompt,
+                    width=width,
+                    height=height,
+                    num_inference_steps=num_steps,
+                    true_cfg_scale=cfg_scale,
+                    generator=generator,
+                ).images[0]
             yield emit_event(GenerationStep.INFERENCE_COMPLETE)
 
             # Save with timestamp to avoid overwriting previous generations
@@ -1347,7 +1345,6 @@ def generate_image(args):
 
 
 def edit_image(args) -> None:
-    import torch
     from PIL import Image
 
     try:
