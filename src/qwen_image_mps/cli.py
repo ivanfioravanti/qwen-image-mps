@@ -242,10 +242,9 @@ def load_rapid_aio_transformer(device, torch_dtype):
         transformer = QwenImageTransformer2DModel.from_pretrained(
             "linoyts/Qwen-Image-Edit-Rapid-AIO",
             subfolder="transformer",
-            dtype=torch_dtype,
         )
-        # Move to device (MPS/CUDA/CPU)
-        transformer = transformer.to(device)
+        # Move to device and convert dtype (MPS/CUDA/CPU)
+        transformer = transformer.to(device=device, dtype=torch_dtype)
         print("Rapid-AIO transformer loaded successfully")
         return transformer
     except Exception as e:
@@ -809,7 +808,6 @@ def load_gguf_pipeline(quantization: str, device, torch_dtype, edit_mode=False):
                 transformer = QwenImageTransformer2DModel.from_single_file(
                     gguf_path,
                     quantization_config=quantization_config,
-                    dtype=torch_dtype,
                     config="Qwen/Qwen-Image",
                     subfolder="transformer",
                 )
@@ -819,7 +817,6 @@ def load_gguf_pipeline(quantization: str, device, torch_dtype, edit_mode=False):
                     # Second try: Load without quantization config
                     transformer = QwenImageTransformer2DModel.from_single_file(
                         gguf_path,
-                        dtype=torch_dtype,
                         config="Qwen/Qwen-Image",
                         subfolder="transformer",
                     )
@@ -828,8 +825,10 @@ def load_gguf_pipeline(quantization: str, device, torch_dtype, edit_mode=False):
                     # Third try: Load with minimal config
                     transformer = QwenImageTransformer2DModel.from_single_file(
                         gguf_path,
-                        dtype=torch_dtype,
                     )
+
+            # Convert dtype and move to device after loading
+            transformer = transformer.to(device=device, dtype=torch_dtype)
 
             print("Creating pipeline with quantized transformer...")
 
@@ -1045,7 +1044,7 @@ class QwenTextEncoderGGUF:
                 return_tensors=return_tensors,
                 padding=True,
                 truncation=True,
-                max_length=512,  # Reasonable limit for text encoder
+                max_length=32000,  # Reasonable limit for text encoder
             )
 
             # Move to device
@@ -1452,8 +1451,13 @@ def edit_image(args) -> None:
 
     # Check if quantization is requested
     quantization = getattr(args, "quantization", None)
-    # Use Rapid-AIO transformer only when fast or ultra-fast mode is enabled
-    use_rapid_aio = (args.fast or args.ultra_fast) and quantization is None
+    anime_mode = bool(getattr(args, "anime", False))
+    # Use Rapid-AIO transformer only for anime edits (best quality for photo-to-anime)
+    use_rapid_aio = anime_mode and quantization is None
+    # Lightning LoRA acceleration for non-anime fast/ultra-fast modes
+    lightning_mode = (
+        (args.fast or args.ultra_fast) and not anime_mode and quantization is None
+    )
 
     if quantization:
         # Load GGUF quantized model for editing
@@ -1500,6 +1504,21 @@ def edit_image(args) -> None:
 
     pipeline.set_progress_bar_config(disable=None)
 
+    # Apply Lightning LoRA for fast / ultra-fast (non-anime) editing
+    if lightning_mode:
+        print(
+            "Loading Lightning LoRA for "
+            + ("ultra-fast" if args.ultra_fast else "fast")
+            + " editing..."
+        )
+        lora_path = get_lora_path(ultra_fast=bool(args.ultra_fast))
+        if lora_path:
+            pipeline = merge_lora_from_safetensors(pipeline, lora_path)
+            print("Lightning LoRA merged successfully for editing pipeline")
+        else:
+            print("Warning: Could not load Lightning LoRA, continuing without it...")
+            lightning_mode = False
+
     # Apply custom LoRA if specified
     if args.lora:
         print(f"Loading custom LoRA: {args.lora}")
@@ -1510,7 +1529,7 @@ def edit_image(args) -> None:
             print("Warning: Could not load custom LoRA, continuing without it...")
 
     # Apply anime LoRA if --anime flag is set
-    if getattr(args, "anime", False):
+    if anime_mode:
         print(
             "Loading Photo-to-Anime LoRA: autoweeb/Qwen-Image-Edit-2509-Photo-to-Anime"
         )
@@ -1527,16 +1546,30 @@ def edit_image(args) -> None:
             )
 
     # Set steps and CFG scale based on mode
-    if args.ultra_fast or args.fast:
-        # Fast/Ultra-fast mode: 4 steps (Rapid-AIO optimized)
-        num_steps = 4
-        cfg_scale = 1.0
-        mode_name = "Ultra-fast" if args.ultra_fast else "Fast"
-        print(f"{mode_name} mode enabled: {num_steps} steps, CFG scale {cfg_scale}")
+    if anime_mode:
+        if args.ultra_fast or args.fast:
+            num_steps = 4
+            cfg_scale = 1.0
+            mode_name = "Ultra-fast" if args.ultra_fast else "Fast"
+            print(
+                f"{mode_name} anime mode enabled: {num_steps} Rapid-AIO steps, CFG scale {cfg_scale}"
+            )
+        else:
+            num_steps = args.steps
+            cfg_scale = 4.0
     else:
-        # Standard mode: use user-specified steps or default
-        num_steps = args.steps
-        cfg_scale = 4.0  # Standard mode uses CFG scale 4.0
+        if args.ultra_fast:
+            num_steps = 4
+            cfg_scale = 1.0
+            print("Ultra-fast Lightning mode enabled: 4 steps, CFG scale 1.0")
+        elif args.fast:
+            num_steps = 8
+            cfg_scale = 1.0
+            print("Fast Lightning mode enabled: 8 steps, CFG scale 1.0")
+        else:
+            # Standard mode: use user-specified steps or default
+            num_steps = args.steps
+            cfg_scale = 4.0  # Standard mode uses CFG scale 4.0
 
     # Override CFG scale if provided by user
     if getattr(args, "cfg_scale", None) is not None:
@@ -1600,15 +1633,30 @@ def edit_image(args) -> None:
         " " if getattr(args, "negative_prompt", None) is None else args.negative_prompt
     )
 
+    MAX_PIPELINE_IMAGES = 3
+    pipeline_input: list[Image.Image] | Image.Image
+    if len(images) > 1:
+        if len(images) > MAX_PIPELINE_IMAGES:
+            print(
+                f"Warning: Qwen-Image-Edit works best with up to {MAX_PIPELINE_IMAGES} reference images. "
+                f"Using the first {MAX_PIPELINE_IMAGES} inputs."
+            )
+            images = images[:MAX_PIPELINE_IMAGES]
+        print(f"Passing {len(images)} images directly to Qwen-Image-Edit pipeline…")
+        pipeline_input = images
+    else:
+        pipeline_input = images[0]
+
     # Perform image editing
     print(f"Editing image with prompt: {edit_prompt}")
     print(f"Using {num_steps} inference steps...")
 
     # Qwen image edit pipeline for image editing
+    default_output_dir = getattr(args, "output_dir", None) or "output"
+
     with torch.inference_mode():
-        pipeline_inputs = images if len(images) > 1 else images[0]
         output = pipeline(
-            image=pipeline_inputs,
+            image=pipeline_input,
             prompt=edit_prompt,
             negative_prompt=edit_negative_prompt,
             num_inference_steps=num_steps,
@@ -1617,21 +1665,23 @@ def edit_image(args) -> None:
         )
         edited_image = output.images[0]
 
-    # Save the edited image
-    default_output_dir = getattr(args, "output_dir", None) or "output"
+        # Save the edited image
+        if args.output:
+            output_filename = args.output
+            if os.path.basename(output_filename) == output_filename:
+                output_filename = os.path.join(default_output_dir, output_filename)
+        else:
+            timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+            output_filename = os.path.join(
+                default_output_dir, f"edited-{timestamp}.png"
+            )
 
-    if args.output:
-        output_filename = args.output
-        if os.path.basename(output_filename) == output_filename:
-            output_filename = os.path.join(default_output_dir, output_filename)
-    else:
-        timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
-        output_filename = os.path.join(default_output_dir, f"edited-{timestamp}.png")
+        os.makedirs(os.path.dirname(output_filename) or ".", exist_ok=True)
+        edited_image.save(output_filename)
+        saved_path = os.path.abspath(output_filename)
+        print(f"\nEdited image saved to: {saved_path} (seed: {seed})")
 
-    os.makedirs(os.path.dirname(output_filename) or ".", exist_ok=True)
-
-    edited_image.save(output_filename)
-    print(f"\nEdited image saved to: {os.path.abspath(output_filename)} (seed: {seed})")
+    return saved_path
 
 
 def main() -> None:

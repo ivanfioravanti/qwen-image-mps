@@ -2,7 +2,7 @@
 
 __version__ = "0.7.0"
 
-from .cli import (
+from .cli import (  # noqa: E402
     build_edit_parser,
     build_generate_parser,
     edit_image,
@@ -12,6 +12,27 @@ from .cli import (
     merge_lora_from_safetensors,
 )
 
+
+def launch_gradio(
+    *,
+    server_name: str | None = None,
+    server_port: int | None = None,
+    share: bool = False,
+):
+    """Launch the Gradio interface.
+
+    This local import avoids importing Gradio unless the UI is requested.
+    """
+
+    from .gradio_app import launch as _launch  # pylint: disable=import-outside-toplevel
+
+    return _launch(
+        server_name=server_name,
+        server_port=server_port,
+        share=share,
+    )
+
+
 __all__ = [
     "main",
     "build_generate_parser",
@@ -20,4 +41,5 @@ __all__ = [
     "edit_image",
     "get_lora_path",
     "merge_lora_from_safetensors",
+    "launch_gradio",
 ]

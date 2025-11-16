@@ -18,13 +18,14 @@ requires-python = ">=3.9"
 dependencies = [
     "torch>=2.0.0",
     "torchvision>=0.15.0",
-    "diffusers>=0.35.0",
+    "diffusers>=0.35.2",
     "transformers>=4.35.0",
     "accelerate>=0.25.0",
     "safetensors>=0.4.0",
     "huggingface-hub>=0.20.0",
     "Pillow>=9.0.0",
     "gguf>=0.10.0",
+    "gradio>=4.42.0",
 ]
 classifiers = [
     "Development Status :: 4 - Beta",
@@ -56,6 +57,7 @@ Issues = "https://github.com/ivanfioravanti/qwen-image-mps/issues"
 
 [project.scripts]
 qwen-image-mps = "qwen_image_mps.cli:main"
+qwen-image-mps-gradio = "qwen_image_mps.gradio_app:main"
 
 [dependency-groups]
 dev = [

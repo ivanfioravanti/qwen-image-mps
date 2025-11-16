@@ -87,6 +87,23 @@ qwen-image-mps generate --help  # For image generation
 qwen-image-mps edit --help      # For image editing
 ```
 
+### Gradio UI (Experimental)
+
+Prefer a graphical interface? Launch the bundled Gradio app:
+
+```bash
+qwen-image-mps-gradio
+```
+
+This starts a local “Qwen-Image Studio” with two tabs:
+
+- **Generate** – Enter prompts, toggle fast/ultra-fast Lightning LoRAs, add LEGO Batman, pick aspect ratios, and queue up to four images per run.
+- **Edit** – Upload one or more images, enable anime (Photo-to-Anime) mode, apply Rapid-AIO fast edits, combine custom LoRAs, or add Batman photobombs.
+
+Dark mode is enabled by default; use the “Toggle light / dark theme” button near the top of the UI to switch to the light palette on demand. (Behind the scenes, this updates Gradio’s `__theme` URL parameter the same way documented in [Gradio’s theme guide](https://www.gradio.app/docs/gradio/themes).)
+
+Outputs are still saved under `output/` (or whatever directory you specify), mirroring the CLI defaults.
+
 ### Image Generation Examples:
 
 ```bash

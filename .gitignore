@@ -152,3 +152,6 @@ image-*.png
 
 # Output directory for generated images
 output/
+
+# Local TODO file
+TODO.md
