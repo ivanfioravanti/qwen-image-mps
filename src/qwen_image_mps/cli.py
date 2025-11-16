@@ -1057,7 +1057,7 @@ class QwenTextEncoderGGUF:
                 return_tensors=return_tensors,
                 padding=True,
                 truncation=True,
-                max_length=32000,  # Reasonable limit for text encoder
+                max_length=4096,  # Reasonable limit for text encoder
             )
 
             # Move to device
@@ -1702,6 +1702,8 @@ def edit_image(args) -> None:
 
 
 def main() -> None:
+    import sys
+
     try:
         from . import __version__
     except ImportError:
@@ -1720,7 +1722,10 @@ def main() -> None:
     )
 
     # Create subparsers for different commands
-    subparsers = parser.add_subparsers(dest="command", help="Available commands")
+    # required=False allows calling the CLI without a subcommand (e.g., for --help)
+    subparsers = parser.add_subparsers(
+        dest="command", help="Available commands", required=False
+    )
 
     # Add generate and edit subcommands
     build_generate_parser(subparsers)
@@ -1737,8 +1742,6 @@ def main() -> None:
     else:
         # Default to generate for backward compatibility if no subcommand
         # This allows the old style invocation to still work
-        import sys
-
         if len(sys.argv) > 1 and sys.argv[1] not in [
             "generate",
             "edit",
