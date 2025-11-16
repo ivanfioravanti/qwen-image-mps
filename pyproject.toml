@@ -7,7 +7,7 @@ allow-direct-references = true
 
 [project]
 name = "qwen-image-mps"
-version = "0.6.0"
+version = "0.7.0"
 description = "Generate images with Qwen-Image on Apple Silicon (MPS) and other devices"
 readme = "README.md"
 license = "MIT"

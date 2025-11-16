@@ -1,6 +1,6 @@
 """Qwen-Image MPS - Generate images with Qwen-Image on Apple Silicon and other devices."""
 
-__version__ = "0.6.0"
+__version__ = "0.7.0"
 
 from .cli import (
     build_edit_parser,

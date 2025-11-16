@@ -1,6 +1,7 @@
 """
-Integration tests for the refactored generate_image function.
-Tests the actual function without mocking to ensure everything works end-to-end.
+Integration tests for image generation and editing functions.
+Tests the actual functions without mocking to ensure everything works end-to-end.
+Covers all modes: normal, fast, and ultra-fast for generation, editing, and anime transformation.
 """
 
 import os
@@ -13,7 +14,7 @@ import pytest
 # Add src to path for imports
 sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", "src"))
 
-from qwen_image_mps.cli import GenerationStep, generate_image
+from qwen_image_mps.cli import GenerationStep, edit_image, generate_image
 
 
 @pytest.mark.slow
@@ -167,4 +168,307 @@ class TestGenerateImageIntegration:
 
         finally:
             # Restore original directory
+            os.chdir(original_dir)
+
+    def test_generate_normal_mode(self):
+        """Test: Generate image in normal mode (no fast/ultra-fast flags)."""
+        args = Namespace(
+            prompt="A serene mountain landscape",
+            steps=2,  # Minimal steps for speed
+            seed=456,
+            num_images=1,
+            lora=None,
+            batman=False,
+            ultra_fast=False,
+            fast=False,
+            aspect="16:9",
+        )
+
+        original_dir = os.getcwd()
+        try:
+            final_result = None
+            for result in generate_image(args):
+                if not isinstance(result, GenerationStep):
+                    final_result = result
+
+            assert final_result is not None, "Should yield final result"
+            assert isinstance(final_result, list), "Final result should be a list"
+            assert len(final_result) == 1, "Should have path for 1 generated image"
+            assert os.path.exists(
+                final_result[0]
+            ), f"File {final_result[0]} should exist"
+            assert (
+                os.path.getsize(final_result[0]) > 0
+            ), "Generated file should not be empty"
+
+        finally:
+            os.chdir(original_dir)
+
+    def test_generate_fast_mode(self):
+        """Test: Generate image in fast mode (8 steps with Lightning LoRA)."""
+        args = Namespace(
+            prompt="A futuristic cityscape",
+            steps=50,  # Will be overridden by fast mode
+            seed=789,
+            num_images=1,
+            lora=None,
+            batman=False,
+            ultra_fast=False,
+            fast=True,  # Fast mode enabled
+            aspect="16:9",
+        )
+
+        original_dir = os.getcwd()
+        try:
+            final_result = None
+            for result in generate_image(args):
+                if not isinstance(result, GenerationStep):
+                    final_result = result
+
+            assert final_result is not None, "Should yield final result"
+            assert isinstance(final_result, list), "Final result should be a list"
+            assert len(final_result) == 1, "Should have path for 1 generated image"
+            assert os.path.exists(
+                final_result[0]
+            ), f"File {final_result[0]} should exist"
+            assert (
+                os.path.getsize(final_result[0]) > 0
+            ), "Generated file should not be empty"
+
+        finally:
+            os.chdir(original_dir)
+
+    def test_generate_ultra_fast_mode(self):
+        """Test: Generate image in ultra-fast mode (4 steps with Lightning LoRA)."""
+        args = Namespace(
+            prompt="A peaceful forest scene",
+            steps=50,  # Will be overridden by ultra-fast mode
+            seed=321,
+            num_images=1,
+            lora=None,
+            batman=False,
+            ultra_fast=True,  # Ultra-fast mode enabled
+            fast=False,
+            aspect="16:9",
+        )
+
+        original_dir = os.getcwd()
+        try:
+            final_result = None
+            for result in generate_image(args):
+                if not isinstance(result, GenerationStep):
+                    final_result = result
+
+            assert final_result is not None, "Should yield final result"
+            assert isinstance(final_result, list), "Final result should be a list"
+            assert len(final_result) == 1, "Should have path for 1 generated image"
+            assert os.path.exists(
+                final_result[0]
+            ), f"File {final_result[0]} should exist"
+            assert (
+                os.path.getsize(final_result[0]) > 0
+            ), "Generated file should not be empty"
+
+        finally:
+            os.chdir(original_dir)
+
+
+@pytest.mark.slow
+class TestEditImageIntegration:
+    """Integration tests for the edit_image function."""
+
+    @pytest.fixture
+    def test_image_path(self):
+        """Provide path to test image for editing."""
+        # Use example.png from project root
+        image_path = os.path.join(os.path.dirname(__file__), "..", "..", "example.png")
+        abs_path = os.path.abspath(image_path)
+        if not os.path.exists(abs_path):
+            pytest.skip(f"Test image not found at {abs_path}")
+        return abs_path
+
+    def test_edit_normal_mode(self, test_image_path):
+        """Test: Edit image in normal mode (with custom steps)."""
+        args = Namespace(
+            input=[test_image_path],
+            prompt="Add dramatic lighting",
+            steps=3,  # Custom steps (minimal for speed)
+            seed=111,
+            fast=False,
+            ultra_fast=False,
+            output=None,
+            output_dir="output",
+            lora=None,
+            batman=False,
+            anime=False,
+            negative_prompt=None,
+            cfg_scale=None,
+            quantization=None,
+        )
+
+        original_dir = os.getcwd()
+        try:
+            edit_image(args)
+
+            # Check that edited image was created
+            edited_files = list(Path("output").glob("edited-*.png"))
+            assert len(edited_files) >= 1, "Should create at least one edited image"
+            assert edited_files[0].stat().st_size > 0, "Edited file should not be empty"
+
+        finally:
+            os.chdir(original_dir)
+
+    def test_edit_fast_mode(self, test_image_path):
+        """Test: Edit image in fast mode (4 steps with Rapid-AIO)."""
+        args = Namespace(
+            input=[test_image_path],
+            prompt="Add vibrant colors",
+            steps=40,  # Default, will be overridden by fast mode
+            seed=222,
+            fast=True,  # Fast mode enabled
+            ultra_fast=False,
+            output=None,
+            output_dir="output",
+            lora=None,
+            batman=False,
+            anime=False,
+            negative_prompt=None,
+            cfg_scale=None,
+            quantization=None,
+        )
+
+        original_dir = os.getcwd()
+        try:
+            edit_image(args)
+
+            # Check that edited image was created
+            edited_files = list(Path("output").glob("edited-*.png"))
+            assert len(edited_files) >= 1, "Should create at least one edited image"
+            assert edited_files[0].stat().st_size > 0, "Edited file should not be empty"
+
+        finally:
+            os.chdir(original_dir)
+
+    def test_edit_ultra_fast_mode(self, test_image_path):
+        """Test: Edit image in ultra-fast mode (same as fast mode for editing)."""
+        args = Namespace(
+            input=[test_image_path],
+            prompt="Add sunset colors",
+            steps=40,  # Default, will be overridden by ultra-fast mode
+            seed=333,
+            fast=False,
+            ultra_fast=True,  # Ultra-fast mode enabled
+            output=None,
+            output_dir="output",
+            lora=None,
+            batman=False,
+            anime=False,
+            negative_prompt=None,
+            cfg_scale=None,
+            quantization=None,
+        )
+
+        original_dir = os.getcwd()
+        try:
+            edit_image(args)
+
+            # Check that edited image was created
+            edited_files = list(Path("output").glob("edited-*.png"))
+            assert len(edited_files) >= 1, "Should create at least one edited image"
+            assert edited_files[0].stat().st_size > 0, "Edited file should not be empty"
+
+        finally:
+            os.chdir(original_dir)
+
+    def test_anime_normal_mode(self, test_image_path):
+        """Test: Anime transformation in normal mode (with custom steps)."""
+        args = Namespace(
+            input=[test_image_path],
+            prompt="Make it colorful",  # Optional with anime
+            steps=3,  # Custom steps (minimal for speed)
+            seed=444,
+            fast=False,
+            ultra_fast=False,
+            output=None,
+            output_dir="output",
+            lora=None,
+            batman=False,
+            anime=True,  # Anime mode enabled
+            negative_prompt=None,
+            cfg_scale=None,
+            quantization=None,
+        )
+
+        original_dir = os.getcwd()
+        try:
+            edit_image(args)
+
+            # Check that edited image was created
+            edited_files = list(Path("output").glob("edited-*.png"))
+            assert len(edited_files) >= 1, "Should create at least one edited image"
+            assert edited_files[0].stat().st_size > 0, "Edited file should not be empty"
+
+        finally:
+            os.chdir(original_dir)
+
+    def test_anime_fast_mode(self, test_image_path):
+        """Test: Anime transformation in fast mode (4 steps with Rapid-AIO)."""
+        args = Namespace(
+            input=[test_image_path],
+            prompt="Add dramatic lighting",  # Optional with anime
+            steps=40,  # Default, will be overridden by fast mode
+            seed=555,
+            fast=True,  # Fast mode enabled
+            ultra_fast=False,
+            output=None,
+            output_dir="output",
+            lora=None,
+            batman=False,
+            anime=True,  # Anime mode enabled
+            negative_prompt=None,
+            cfg_scale=None,
+            quantization=None,
+        )
+
+        original_dir = os.getcwd()
+        try:
+            edit_image(args)
+
+            # Check that edited image was created
+            edited_files = list(Path("output").glob("edited-*.png"))
+            assert len(edited_files) >= 1, "Should create at least one edited image"
+            assert edited_files[0].stat().st_size > 0, "Edited file should not be empty"
+
+        finally:
+            os.chdir(original_dir)
+
+    def test_anime_ultra_fast_mode(self, test_image_path):
+        """Test: Anime transformation in ultra-fast mode (same as fast for editing)."""
+        args = Namespace(
+            input=[test_image_path],
+            prompt=None,  # Prompt is optional with anime
+            steps=40,  # Default, will be overridden by ultra-fast mode
+            seed=666,
+            fast=False,
+            ultra_fast=True,  # Ultra-fast mode enabled
+            output=None,
+            output_dir="output",
+            lora=None,
+            batman=False,
+            anime=True,  # Anime mode enabled
+            negative_prompt=None,
+            cfg_scale=None,
+            quantization=None,
+        )
+
+        original_dir = os.getcwd()
+        try:
+            edit_image(args)
+
+            # Check that edited image was created
+            edited_files = list(Path("output").glob("edited-*.png"))
+            assert len(edited_files) >= 1, "Should create at least one edited image"
+            assert edited_files[0].stat().st_size > 0, "Edited file should not be empty"
+
+        finally:
             os.chdir(original_dir)

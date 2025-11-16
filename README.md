@@ -26,6 +26,15 @@ Example edit results showing winter transformation:
 
 ![Edit example](https://raw.githubusercontent.com/ivanfioravanti/qwen-image-mps/main/editexample.jpg)
 
+Anime photo-to-anime example using `--anime`:
+
+Input (`einstein.jpg`) vs. anime output (`anime-einstein.png`):
+
+![Einstein photo](einstein.jpg)
+![Anime Einstein](anime-einstein.png)
+
+Photo-to-anime mode is powered by Choomba’s (X: [@begina​non](https://x.com/beginanon)) LoRA, available on Hugging Face as [`autoweeb/Qwen-Image-Edit-2509-Photo-to-Anime`](https://huggingface.co/autoweeb/Qwen-Image-Edit-2509-Photo-to-Anime).
+
 ## Installation
 
 ### Option 1: Install from PyPI (Recommended)
@@ -135,13 +144,13 @@ qwen-image-mps generate -p "Portrait photo" --cfg-scale 2.5
 ### Image Editing Examples:
 
 ```bash
-# Basic image editing
+# Basic image editing (uses Rapid-AIO transformer, 4 steps by default)
 qwen-image-mps edit -i input.jpg -p "Change the sky to sunset colors"
 
-# Fast mode with Lightning LoRA (8 steps)
+# Fast mode with Rapid-AIO transformer (8 steps)
 qwen-image-mps edit -i photo.png -p "Add snow to the mountains" --fast
 
-# Ultra-fast mode with Lightning LoRA (4 steps)
+# Ultra-fast mode with Rapid-AIO transformer (4 steps)
 qwen-image-mps edit -i landscape.jpg -p "Make it autumn colors" --ultra-fast
 # Or use the short form
 qwen-image-mps edit -i landscape.jpg -p "Make it autumn colors" -uf
@@ -169,6 +178,12 @@ qwen-image-mps edit -i photo.jpg -p "Change to sunset lighting" --batman
 
 # Combine Batman mode with fast editing
 qwen-image-mps edit -i portrait.jpg -p "Add dramatic shadows" --batman --fast
+
+# Transform photo to anime style (prompt is optional with --anime) fast mode with Rapid-AIO transformer recommended 
+qwen-image-mps edit -i photo.jpg --anime --fast
+
+# Anime transformation with additional instructions
+qwen-image-mps edit -i photo.jpg -p "make it colorful" --anime --fast
 
 # Save edited image into a custom directory
 qwen-image-mps edit -i photo.jpg -p "Add autumn colors" --outdir edits
@@ -199,11 +214,11 @@ If using the direct script with uv, replace `qwen-image-mps` with `uv run qwen-i
 
 #### Edit Command Arguments
 - `-i, --input` (str): Path(s) to the input image(s) to edit (required). Provide multiple paths to blend results.
-- `-p, --prompt` (str): Editing instructions (required).
+- `-p, --prompt` (str): Editing instructions. Optional when `--anime` is used (defaults to anime transformation prompt).
 - `--negative-prompt` (str): Text to discourage in the edit (negative prompt).
 - `-s, --steps` (int): Number of inference steps for normal editing (default: 50).
-- `-f, --fast`: Enable fast mode using Lightning LoRA v2.0 for 8-step editing.
-- `-uf, --ultra-fast`: Enable ultra-fast mode using Lightning LoRA v2.0 for 4-step editing.
+- `-f, --fast`: Enable fast mode using Rapid-AIO transformer for 4-step editing.
+- `-uf, --ultra-fast`: Enable ultra-fast mode using Rapid-AIO transformer for 4-step editing.
 - `--seed` (int): Random seed for reproducible generation (default: 42).
 - `-o, --output` (str): Output filename (default: edited-<timestamp>.png).
 - `--outdir` (str): Directory to save edited images (default: `./output`). If `--output` is a basename, it is saved under this directory.
@@ -211,6 +226,7 @@ If using the direct script with uv, replace `qwen-image-mps` with `uv run qwen-i
 - `--lora` (str): Hugging Face model URL or repo ID for additional LoRA to load
   (e.g., 'flymy-ai/qwen-image-anime-irl-lora' or full HF URL).
 - `--batman`: Add a LEGO Batman minifigure photobombing your edited image!
+- `--anime`: Transform photo to anime style using Photo-to-Anime LoRA. Can be combined with `--fast` or `--ultra-fast` for faster processing.
 
 ## What the script does
 
@@ -228,31 +244,38 @@ If using the direct script with uv, replace `qwen-image-mps` with `uv run qwen-i
 
 ### Image Editing
 - Loads `Qwen/Qwen-Image-Edit-2509` via `QwenImageEditPlusPipeline` (falling back to `QwenImageEditPipeline` when needed)
+- Uses Rapid-AIO transformer ([`linoyts/Qwen-Image-Edit-Rapid-AIO`](https://huggingface.co/linoyts/Qwen-Image-Edit-Rapid-AIO)) for optimized fast inference
 - Takes an existing image and editing instructions as input
 - Applies transformations while preserving the original structure
+- Uses 4 inference steps by default (optimized for Rapid-AIO transformer)
 - Saves the edited image under `output/` by default as `edited-YYYYMMDD-HHMMSS.png`, or to a custom filename.
 - Prints the full path of the edited image
 
-### Fast Mode & Ultra-Fast Mode (Lightning LoRA)
+### Fast Mode & Ultra-Fast Mode
 
-#### Fast Mode (`-f/--fast`)
-When using the `-f/--fast` flag, the tool:
-- Automatically downloads the Lightning LoRA v2.0 from Hugging Face (cached in `~/.cache/huggingface/hub/`)
-- Merges the LoRA weights into the model for accelerated generation
-- Uses fixed 8 inference steps with CFG scale 1.0
-- Provides ~6x speedup compared to the default 50 steps
+#### Image Editing (Rapid-AIO Transformer)
+All image editing operations use the Rapid-AIO transformer ([`linoyts/Qwen-Image-Edit-Rapid-AIO`](https://huggingface.co/linoyts/Qwen-Image-Edit-Rapid-AIO)) for optimized fast inference:
+- Automatically loads the Rapid-AIO transformer (cached in `~/.cache/huggingface/hub/`)
+- Uses 4 inference steps by default with CFG scale 1.0
+- Provides fast, high-quality image editing results
 
-#### Ultra-Fast Mode (`-uf/--ultra-fast`)
-When using the `-uf/--ultra-fast` flag, the tool:
-- Automatically downloads the Lightning LoRA v2.0 from Hugging Face (cached in `~/.cache/huggingface/hub/`)
-- Merges the LoRA weights into the model for maximum speed generation
-- Uses fixed 4 inference steps with CFG scale 1.0
-- Provides ~12x speedup compared to the default 50 steps
-- Ideal for rapid prototyping and iteration
+#### Fast Mode (`-f/--fast`) for Editing
+When using the `-f/--fast` flag with edit command:
+- Uses Rapid-AIO transformer (already loaded by default)
+- Uses 4 inference steps with CFG scale 1.0 (Rapid-AIO optimized)
 
-The fast implementation is based on [Qwen-Image-Lightning](https://github.com/ModelTC/Qwen-Image-Lightning). The Lightning LoRA models are available on HuggingFace at [lightx2v/Qwen-Image-Lightning](https://huggingface.co/lightx2v/Qwen-Image-Lightning).
+#### Ultra-Fast Mode (`-uf/--ultra-fast`) for Editing
+When using the `-uf/--ultra-fast` flag with edit command:
+- Uses Rapid-AIO transformer (already loaded by default)
+- Uses 4 inference steps with CFG scale 1.0 (Rapid-AIO optimized)
+- Both fast and ultra-fast modes use the same optimized 4-step inference
 
-Both generation and editing now support Lightning LoRA for accelerated processing!
+#### Image Generation (Lightning LoRA)
+For image generation, the tool uses Lightning LoRA models:
+- Fast mode (`-f/--fast`): Uses Lightning LoRA v2.0 for 8-step generation
+- Ultra-fast mode (`-uf/--ultra-fast`): Uses Lightning LoRA v2.0 for 4-step generation
+- The fast implementation is based on [Qwen-Image-Lightning](https://github.com/ModelTC/Qwen-Image-Lightning)
+- Lightning LoRA models are available on HuggingFace at [lightx2v/Qwen-Image-Lightning](https://huggingface.co/lightx2v/Qwen-Image-Lightning)
 
 ### Batman Mode 🦇
 

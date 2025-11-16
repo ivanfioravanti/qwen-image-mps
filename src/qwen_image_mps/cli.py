@@ -144,7 +144,7 @@ def build_generate_parser(subparsers) -> argparse.ArgumentParser:
     return parser
 
 
-def get_lora_path(ultra_fast=False, edit_mode=False):
+def get_lora_path(ultra_fast=False):
     from huggingface_hub import hf_hub_download
 
     """Get the Lightning LoRA from Hugging Face Hub with a silent cache freshness check.
@@ -154,17 +154,12 @@ def get_lora_path(ultra_fast=False, edit_mode=False):
     - Then fetch the latest from the Hub (without forcing) which will reuse cache
       if up-to-date, or download a newer snapshot if the remote changed.
     - Return the final resolved local path.
+    
+    Note: This function is only used for image generation. Image editing uses
+    Rapid-AIO transformer instead of Lightning LoRAs.
     """
 
-    if edit_mode and ultra_fast:
-        # Use the ultra-fast Lightning LoRA for editing
-        filename = "Qwen-Image-Edit-Lightning-4steps-V1.0-bf16.safetensors"
-        version = "Edit v1.0 (4-steps)"
-    elif edit_mode:
-        # Use the Lightning LoRA for standard fast editing
-        filename = "Qwen-Image-Edit-Lightning-8steps-V1.0-bf16.safetensors"
-        version = "Edit v1.0 (8-steps)"
-    elif ultra_fast:
+    if ultra_fast:
         filename = "Qwen-Image-Lightning-4steps-V2.0-bf16.safetensors"
         version = "v2.0 (4-steps)"
     else:
@@ -198,6 +193,64 @@ def get_lora_path(ultra_fast=False, edit_mode=False):
         return latest_path
     except Exception as e:
         print(f"Failed to load Lightning LoRA {version}: {e}")
+        return None
+
+
+def get_anime_lora_path():
+    """Get the Photo-to-Anime LoRA from Hugging Face Hub.
+
+    Uses the same specific safetensors file as the Hugging Face Space:
+    Qwen-Image-Edit-2509-Photo-to-Anime_000001000.safetensors
+
+    Returns:
+        Path to the LoRA file, or None if failed
+    """
+    from huggingface_hub import hf_hub_download
+
+    repo_id = "autoweeb/Qwen-Image-Edit-2509-Photo-to-Anime"
+    filename = "Qwen-Image-Edit-2509-Photo-to-Anime_000001000.safetensors"
+
+    try:
+        lora_path = hf_hub_download(
+            repo_id=repo_id,
+            filename=filename,
+            repo_type="model",
+        )
+        return lora_path
+    except Exception as e:
+        print(f"Failed to load Photo-to-Anime LoRA: {e}")
+        return None
+
+
+def load_rapid_aio_transformer(device, torch_dtype):
+    """Load the Rapid-AIO transformer for fast 4-step inference.
+
+    This transformer is optimized for fast inference and can improve
+    anime transformation quality, especially at lower step counts.
+
+    Args:
+        device: Device to load on (mps/cuda/cpu)
+        torch_dtype: Data type for computation
+
+    Returns:
+        QwenImageTransformer2DModel instance or None if failed
+    """
+    try:
+        from diffusers.models import QwenImageTransformer2DModel
+
+        print("Loading Rapid-AIO transformer for optimized inference...")
+        transformer = QwenImageTransformer2DModel.from_pretrained(
+            "linoyts/Qwen-Image-Edit-Rapid-AIO",
+            subfolder="transformer",
+            dtype=torch_dtype,
+        )
+        # Move to device (MPS/CUDA/CPU)
+        transformer = transformer.to(device)
+        print("Rapid-AIO transformer loaded successfully")
+        return transformer
+    except Exception as e:
+        print(f"Warning: Could not load Rapid-AIO transformer: {e}")
+        print("Falling back to standard transformer...")
         return None
 
 
@@ -483,8 +536,9 @@ def build_edit_parser(subparsers) -> argparse.ArgumentParser:
         "-p",
         "--prompt",
         type=str,
-        required=True,
-        help="Editing instructions (e.g., 'Change the sky to sunset colors').",
+        required=False,
+        default=None,
+        help="Editing instructions (e.g., 'Change the sky to sunset colors'). Optional when --anime is used (defaults to anime transformation prompt).",
     )
     parser.add_argument(
         "--negative-prompt",
@@ -506,13 +560,13 @@ def build_edit_parser(subparsers) -> argparse.ArgumentParser:
         "-f",
         "--fast",
         action="store_true",
-        help="Use Lightning LoRA for fast editing (8 steps).",
+        help="Use Rapid-AIO transformer for fast editing (4 steps).",
     )
     parser.add_argument(
         "-uf",
         "--ultra-fast",
         action="store_true",
-        help="Use Lightning LoRA for ultra-fast editing (4 steps).",
+        help="Use Rapid-AIO transformer for ultra-fast editing (4 steps).",
     )
     parser.add_argument(
         "--seed",
@@ -553,6 +607,11 @@ def build_edit_parser(subparsers) -> argparse.ArgumentParser:
         help="LEGO Batman photobombs your image! 🦇",
     )
     parser.add_argument(
+        "--anime",
+        action="store_true",
+        help="Transform photo to anime style using Photo-to-Anime LoRA.",
+    )
+    parser.add_argument(
         "--quantization",
         type=str,
         default=None,
@@ -588,6 +647,47 @@ def get_device_and_dtype():
     else:
         print("Using CPU")
         return "cpu", torch.float32
+
+
+def convert_pipeline_to_dtype(pipeline, torch_dtype):
+    """Convert pipeline components to the specified dtype for MPS compatibility.
+
+    Ensures transformer, text encoder, and VAE components share the same dtype.
+    While VAEs often prefer float32 for stability, running on MPS requires all
+    participating tensors to use the same dtype. Keeping everything consistent
+    avoids runtime errors like dtype mismatches in Metal kernels.
+
+    Args:
+        pipeline: The pipeline to convert
+        torch_dtype: Target dtype (e.g., torch.bfloat16 for MPS)
+    """
+
+    def _to_dtype(module):
+        if module is not None and hasattr(module, "to"):
+            module = module.to(dtype=torch_dtype)
+        return module
+
+    # Convert transformer
+    if hasattr(pipeline, "transformer"):
+        pipeline.transformer = _to_dtype(pipeline.transformer)
+
+    # Convert text encoder
+    if hasattr(pipeline, "text_encoder"):
+        pipeline.text_encoder = _to_dtype(pipeline.text_encoder)
+
+    # Convert secondary text encoder if present (e.g., text_encoder_2)
+    if hasattr(pipeline, "text_encoder_2"):
+        pipeline.text_encoder_2 = _to_dtype(pipeline.text_encoder_2)
+
+    # Convert VAE and its submodules (encoder / decoder)
+    if hasattr(pipeline, "vae"):
+        pipeline.vae = _to_dtype(pipeline.vae)
+        if hasattr(pipeline.vae, "encoder"):
+            pipeline.vae.encoder = _to_dtype(pipeline.vae.encoder)
+        if hasattr(pipeline.vae, "decoder"):
+            pipeline.vae.decoder = _to_dtype(pipeline.vae.decoder)
+
+    return pipeline
 
 
 def get_gguf_model_path(quantization: str):
@@ -709,7 +809,7 @@ def load_gguf_pipeline(quantization: str, device, torch_dtype, edit_mode=False):
                 transformer = QwenImageTransformer2DModel.from_single_file(
                     gguf_path,
                     quantization_config=quantization_config,
-                    torch_dtype=torch_dtype,
+                    dtype=torch_dtype,
                     config="Qwen/Qwen-Image",
                     subfolder="transformer",
                 )
@@ -719,7 +819,7 @@ def load_gguf_pipeline(quantization: str, device, torch_dtype, edit_mode=False):
                     # Second try: Load without quantization config
                     transformer = QwenImageTransformer2DModel.from_single_file(
                         gguf_path,
-                        torch_dtype=torch_dtype,
+                        dtype=torch_dtype,
                         config="Qwen/Qwen-Image",
                         subfolder="transformer",
                     )
@@ -728,7 +828,7 @@ def load_gguf_pipeline(quantization: str, device, torch_dtype, edit_mode=False):
                     # Third try: Load with minimal config
                     transformer = QwenImageTransformer2DModel.from_single_file(
                         gguf_path,
-                        torch_dtype=torch_dtype,
+                        dtype=torch_dtype,
                     )
 
             print("Creating pipeline with quantized transformer...")
@@ -736,7 +836,7 @@ def load_gguf_pipeline(quantization: str, device, torch_dtype, edit_mode=False):
             pipeline = DiffusionPipeline.from_pretrained(
                 "Qwen/Qwen-Image",
                 transformer=transformer,
-                torch_dtype=torch_dtype,
+                dtype=torch_dtype,
             )
 
             pipeline = pipeline.to(device)
@@ -758,7 +858,7 @@ def load_gguf_pipeline(quantization: str, device, torch_dtype, edit_mode=False):
             # Fallback: Use standard transformer and standard text encoder
             pipeline = DiffusionPipeline.from_pretrained(
                 "Qwen/Qwen-Image",
-                torch_dtype=torch_dtype,
+                dtype=torch_dtype,
             )
             pipeline = pipeline.to(device)
             print("Successfully loaded standard model")
@@ -774,7 +874,7 @@ def load_gguf_pipeline(quantization: str, device, torch_dtype, edit_mode=False):
             # Fallback: Use standard transformer and standard text encoder
             pipeline = DiffusionPipeline.from_pretrained(
                 "Qwen/Qwen-Image",
-                torch_dtype=torch_dtype,
+                dtype=torch_dtype,
             )
             pipeline = pipeline.to(device)
             print("Successfully loaded standard model")
@@ -909,7 +1009,7 @@ class QwenTextEncoderGGUF:
             # Load the model and tokenizer
             self.model = AutoModelForCausalLM.from_pretrained(
                 self.gguf_path,
-                torch_dtype=self.torch_dtype,
+                dtype=self.torch_dtype,
                 device_map="auto" if self.device != "cpu" else None,
                 trust_remote_code=True,
             )
@@ -1118,15 +1218,11 @@ def generate_image(args):
             )
             if pipe is None:
                 print("Failed to load GGUF model, falling back to standard model...")
-                pipe = DiffusionPipeline.from_pretrained(
-                    model_name, torch_dtype=torch_dtype
-                )
+                pipe = DiffusionPipeline.from_pretrained(model_name, dtype=torch_dtype)
                 pipe = pipe.to(device)
         else:
             # Load standard model
-            pipe = DiffusionPipeline.from_pretrained(
-                model_name, torch_dtype=torch_dtype
-            )
+            pipe = DiffusionPipeline.from_pretrained(model_name, dtype=torch_dtype)
             pipe = pipe.to(device)
 
         # pipe.enable_attention_slicing(slice_size=1)
@@ -1356,6 +1452,9 @@ def edit_image(args) -> None:
 
     # Check if quantization is requested
     quantization = getattr(args, "quantization", None)
+    # Use Rapid-AIO transformer only when fast or ultra-fast mode is enabled
+    use_rapid_aio = (args.fast or args.ultra_fast) and quantization is None
+
     if quantization:
         # Load GGUF quantized model for editing
         print(f"Loading GGUF quantized model ({quantization}) for image editing...")
@@ -1363,17 +1462,41 @@ def edit_image(args) -> None:
         if pipeline is None:
             print("GGUF models for editing may not be available yet.")
             print("Falling back to standard edit model...")
+            pipeline = EditPipeline.from_pretrained("Qwen/Qwen-Image-Edit-2509")
+            pipeline = pipeline.to(device)
+            # Convert all components to desired dtype for MPS compatibility
+            pipeline = convert_pipeline_to_dtype(pipeline, torch_dtype)
+    elif use_rapid_aio:
+        # Use Rapid-AIO transformer for optimized fast inference
+        rapid_transformer = load_rapid_aio_transformer(device, torch_dtype)
+        if rapid_transformer:
+            print("Loading Qwen-Image-Edit pipeline with Rapid-AIO transformer...")
+            # Edit pipelines don't accept dtype parameter, so we load without it
+            # and handle dtype conversion after loading
             pipeline = EditPipeline.from_pretrained(
-                "Qwen/Qwen-Image-Edit-2509", torch_dtype=torch_dtype
+                "Qwen/Qwen-Image-Edit-2509",
+                transformer=rapid_transformer,
             )
             pipeline = pipeline.to(device)
+            # Convert all components to desired dtype for MPS compatibility
+            pipeline = convert_pipeline_to_dtype(pipeline, torch_dtype)
+        else:
+            # Fallback to standard pipeline if Rapid-AIO fails
+            print(
+                "Warning: Could not load Rapid-AIO transformer, falling back to standard transformer..."
+            )
+            print("Loading Qwen-Image-Edit model for image editing...")
+            pipeline = EditPipeline.from_pretrained("Qwen/Qwen-Image-Edit-2509")
+            pipeline = pipeline.to(device)
+            # Convert all components to desired dtype for MPS compatibility
+            pipeline = convert_pipeline_to_dtype(pipeline, torch_dtype)
     else:
-        # Load the standard image editing pipeline
-        print("Loading Qwen-Image-Edit model for image editing...")
-        pipeline = EditPipeline.from_pretrained(
-            "Qwen/Qwen-Image-Edit-2509", torch_dtype=torch_dtype
-        )
+        # Use standard transformer (Rapid-AIO disabled)
+        print("Loading Qwen-Image-Edit model with standard transformer...")
+        pipeline = EditPipeline.from_pretrained("Qwen/Qwen-Image-Edit-2509")
         pipeline = pipeline.to(device)
+        # Convert all components to desired dtype for MPS compatibility
+        pipeline = convert_pipeline_to_dtype(pipeline, torch_dtype)
 
     pipeline.set_progress_bar_config(disable=None)
 
@@ -1386,40 +1509,34 @@ def edit_image(args) -> None:
         else:
             print("Warning: Could not load custom LoRA, continuing without it...")
 
-    # Apply Lightning LoRA if fast or ultra-fast mode is enabled
-    if args.ultra_fast:
-        print("Loading Lightning Edit LoRA v1.0 (4 steps) for ultra-fast editing...")
-        lora_path = get_lora_path(ultra_fast=True, edit_mode=True)
-        if lora_path:
-            # Use manual LoRA merging for edit pipeline
-            pipeline = merge_lora_from_safetensors(pipeline, lora_path)
-            # Use fixed 4 steps for Ultra Lightning mode
-            num_steps = 4
-            cfg_scale = 1.0
-            print(f"Ultra-fast mode enabled: {num_steps} steps, CFG scale {cfg_scale}")
+    # Apply anime LoRA if --anime flag is set
+    if getattr(args, "anime", False):
+        print(
+            "Loading Photo-to-Anime LoRA: autoweeb/Qwen-Image-Edit-2509-Photo-to-Anime"
+        )
+        print(
+            "Using safetensors file: Qwen-Image-Edit-2509-Photo-to-Anime_000001000.safetensors"
+        )
+        anime_lora_path = get_anime_lora_path()
+        if anime_lora_path:
+            pipeline = merge_lora_from_safetensors(pipeline, anime_lora_path)
+            print("Photo-to-Anime LoRA loaded successfully")
         else:
-            print("Warning: Could not load Lightning Edit LoRA v1.0 (4 steps)")
-            print("Falling back to normal editing...")
-            num_steps = args.steps
-            cfg_scale = 4.0
-    elif args.fast:
-        print("Loading Lightning Edit LoRA v1.0 for fast editing...")
-        lora_path = get_lora_path(edit_mode=True)
-        if lora_path:
-            # Use manual LoRA merging for edit pipeline
-            pipeline = merge_lora_from_safetensors(pipeline, lora_path)
-            # Use fixed 8 steps for Lightning Edit mode
-            num_steps = 8
-            cfg_scale = 1.0
-            print(f"Fast edit mode enabled: {num_steps} steps, CFG scale {cfg_scale}")
-        else:
-            print("Warning: Could not load Lightning Edit LoRA v1.0")
-            print("Falling back to normal editing...")
-            num_steps = args.steps
-            cfg_scale = 4.0
+            print(
+                "Warning: Could not load Photo-to-Anime LoRA, continuing without it..."
+            )
+
+    # Set steps and CFG scale based on mode
+    if args.ultra_fast or args.fast:
+        # Fast/Ultra-fast mode: 4 steps (Rapid-AIO optimized)
+        num_steps = 4
+        cfg_scale = 1.0
+        mode_name = "Ultra-fast" if args.ultra_fast else "Fast"
+        print(f"{mode_name} mode enabled: {num_steps} steps, CFG scale {cfg_scale}")
     else:
+        # Standard mode: use user-specified steps or default
         num_steps = args.steps
-        cfg_scale = 4.0
+        cfg_scale = 4.0  # Standard mode uses CFG scale 4.0
 
     # Override CFG scale if provided by user
     if getattr(args, "cfg_scale", None) is not None:
@@ -1447,8 +1564,18 @@ def edit_image(args) -> None:
     seed = args.seed if args.seed is not None else secrets.randbits(63)
     generator = create_generator(device, seed)
 
-    # Modify prompt for Batman photobomb mode
-    edit_prompt = args.prompt
+    # Modify prompt for anime mode and Batman photobomb mode
+    # Handle optional prompt when --anime is used
+    if getattr(args, "anime", False) and args.prompt is None:
+        edit_prompt = "Convert this photo to anime style"
+    elif getattr(args, "anime", False):
+        edit_prompt = "Convert this photo to anime style. " + args.prompt
+    elif args.prompt is None:
+        print("Error: --prompt is required unless --anime is used")
+        return
+    else:
+        edit_prompt = args.prompt
+
     if args.batman:
         import random
 
@@ -1465,7 +1592,7 @@ def edit_image(args) -> None:
             " Put a small LEGO Batman photobombing like he's protecting Gotham.",
         ]
         batman_edit = random.choice(batman_edits)
-        edit_prompt = args.prompt + batman_edit
+        edit_prompt = edit_prompt + batman_edit
         print("\n🦇 BATMAN MODE ACTIVATED: LEGO Batman will photobomb this edit!")
 
     # Prepare negative prompt (allow CLI override; default to empty)
@@ -1512,7 +1639,7 @@ def main() -> None:
         from . import __version__
     except ImportError:
         # Fallback when module is loaded without package context
-        __version__ = "0.4.5"
+        __version__ = "0.7.0"
 
     parser = argparse.ArgumentParser(
         description="Qwen-Image MPS - Generate and edit images with Qwen models on Apple Silicon",
