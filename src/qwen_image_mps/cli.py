@@ -2,11 +2,21 @@ import argparse
 import os
 import random
 import secrets
+import warnings
 from datetime import datetime
 from enum import Enum
 from typing import Optional
 
 import torch
+
+# Suppress CUDA autocast warning when CUDA is not available (e.g., on MPS systems)
+# This warning is harmless - PyTorch will automatically disable autocast when CUDA isn't available
+warnings.filterwarnings(
+    "ignore",
+    message="User provided device_type of 'cuda', but CUDA is not available. Disabling",
+    category=UserWarning,
+    module="torch.amp.autocast_mode",
+)
 
 
 class GenerationStep(Enum):
@@ -835,10 +845,11 @@ def load_gguf_pipeline(quantization: str, device, torch_dtype, edit_mode=False):
             pipeline = DiffusionPipeline.from_pretrained(
                 "Qwen/Qwen-Image",
                 transformer=transformer,
-                dtype=torch_dtype,
             )
 
             pipeline = pipeline.to(device)
+            # Convert all components to desired dtype for MPS compatibility
+            pipeline = convert_pipeline_to_dtype(pipeline, torch_dtype)
 
             # Enable memory optimizations
             # pipeline.enable_attention_slicing(slice_size=1)
@@ -857,9 +868,10 @@ def load_gguf_pipeline(quantization: str, device, torch_dtype, edit_mode=False):
             # Fallback: Use standard transformer and standard text encoder
             pipeline = DiffusionPipeline.from_pretrained(
                 "Qwen/Qwen-Image",
-                dtype=torch_dtype,
             )
             pipeline = pipeline.to(device)
+            # Convert all components to desired dtype for MPS compatibility
+            pipeline = convert_pipeline_to_dtype(pipeline, torch_dtype)
             print("Successfully loaded standard model")
             return pipeline
 
@@ -873,9 +885,10 @@ def load_gguf_pipeline(quantization: str, device, torch_dtype, edit_mode=False):
             # Fallback: Use standard transformer and standard text encoder
             pipeline = DiffusionPipeline.from_pretrained(
                 "Qwen/Qwen-Image",
-                dtype=torch_dtype,
             )
             pipeline = pipeline.to(device)
+            # Convert all components to desired dtype for MPS compatibility
+            pipeline = convert_pipeline_to_dtype(pipeline, torch_dtype)
             print("Successfully loaded standard model")
             return pipeline
 
@@ -1217,12 +1230,16 @@ def generate_image(args):
             )
             if pipe is None:
                 print("Failed to load GGUF model, falling back to standard model...")
-                pipe = DiffusionPipeline.from_pretrained(model_name, dtype=torch_dtype)
+                pipe = DiffusionPipeline.from_pretrained(model_name)
                 pipe = pipe.to(device)
+                # Convert all components to desired dtype for MPS compatibility
+                pipe = convert_pipeline_to_dtype(pipe, torch_dtype)
         else:
             # Load standard model
-            pipe = DiffusionPipeline.from_pretrained(model_name, dtype=torch_dtype)
+            pipe = DiffusionPipeline.from_pretrained(model_name)
             pipe = pipe.to(device)
+            # Convert all components to desired dtype for MPS compatibility
+            pipe = convert_pipeline_to_dtype(pipe, torch_dtype)
 
         # pipe.enable_attention_slicing(slice_size=1)
         # pipe.enable_vae_slicing()
