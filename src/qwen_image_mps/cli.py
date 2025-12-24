@@ -1483,7 +1483,7 @@ def edit_image(args) -> None:
         if pipeline is None:
             print("GGUF models for editing may not be available yet.")
             print("Falling back to standard edit model...")
-            pipeline = EditPipeline.from_pretrained("Qwen/Qwen-Image-Edit-2509")
+            pipeline = EditPipeline.from_pretrained("Qwen/Qwen-Image-Edit-2511")
             pipeline = pipeline.to(device)
             # Convert all components to desired dtype for MPS compatibility
             pipeline = convert_pipeline_to_dtype(pipeline, torch_dtype)
@@ -1495,7 +1495,7 @@ def edit_image(args) -> None:
             # Edit pipelines don't accept dtype parameter, so we load without it
             # and handle dtype conversion after loading
             pipeline = EditPipeline.from_pretrained(
-                "Qwen/Qwen-Image-Edit-2509",
+                "Qwen/Qwen-Image-Edit-2511",
                 transformer=rapid_transformer,
             )
             pipeline = pipeline.to(device)
@@ -1507,14 +1507,14 @@ def edit_image(args) -> None:
                 "Warning: Could not load Rapid-AIO transformer, falling back to standard transformer..."
             )
             print("Loading Qwen-Image-Edit model for image editing...")
-            pipeline = EditPipeline.from_pretrained("Qwen/Qwen-Image-Edit-2509")
+            pipeline = EditPipeline.from_pretrained("Qwen/Qwen-Image-Edit-2511")
             pipeline = pipeline.to(device)
             # Convert all components to desired dtype for MPS compatibility
             pipeline = convert_pipeline_to_dtype(pipeline, torch_dtype)
     else:
         # Use standard transformer (Rapid-AIO disabled)
         print("Loading Qwen-Image-Edit model with standard transformer...")
-        pipeline = EditPipeline.from_pretrained("Qwen/Qwen-Image-Edit-2509")
+        pipeline = EditPipeline.from_pretrained("Qwen/Qwen-Image-Edit-2511")
         pipeline = pipeline.to(device)
         # Convert all components to desired dtype for MPS compatibility
         pipeline = convert_pipeline_to_dtype(pipeline, torch_dtype)

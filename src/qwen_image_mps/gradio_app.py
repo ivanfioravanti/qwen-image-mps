@@ -69,15 +69,27 @@ function toggleTheme() {
 """
 
 
+# Note: Theme switching via URL parameter may not work in Gradio 6.x
+# Users can toggle theme using the theme button in the UI
 SET_DARK_THEME_JS = """
 function ensureDarkTheme() {
-    const url = new URL(window.location);
-    if (!url.searchParams.get("__theme")) {
-        url.searchParams.set("__theme", "dark");
-        window.location.replace(url.toString());
+    // Check current theme and switch to dark if needed
+    const body = document.body;
+    if (body && !body.classList.contains('dark')) {
+        // Try to find and click the theme toggle button
+        const themeBtn = document.querySelector('[data-testid="theme-switch"]') ||
+                         document.querySelector('.theme-toggle-btn');
+        if (themeBtn) {
+            themeBtn.click();
+        }
     }
 }
-ensureDarkTheme();
+// Wait for page to load before applying theme
+if (document.readyState === 'loading') {
+    document.addEventListener('DOMContentLoaded', ensureDarkTheme);
+} else {
+    setTimeout(ensureDarkTheme, 100);
+}
 """
 
 SCROLL_GALLERY_TO_TOP_JS = """
@@ -625,137 +637,141 @@ def run_edit(  # pragma: no cover - exercised via manual UI usage
     yield edited_image, final_log
 
 
+# Custom CSS for the Gradio interface
+CUSTOM_CSS = """
+.theme-toggle-btn {
+    min-width: 40px !important;
+    width: 40px !important;
+    padding: 8px !important;
+    position: relative !important;
+}
+.theme-toggle-btn::before {
+    content: "Toggle light / dark theme";
+    position: absolute;
+    bottom: calc(100% + 8px);
+    left: 50%;
+    transform: translateX(-50%);
+    background: rgba(0, 0, 0, 0.85);
+    color: white;
+    padding: 6px 10px;
+    border-radius: 4px;
+    font-size: 12px;
+    white-space: nowrap;
+    opacity: 0;
+    pointer-events: none;
+    transition: opacity 0.2s;
+    z-index: 1000;
+}
+.theme-toggle-btn:hover::before {
+    opacity: 1;
+}
+/* Gallery layout: selected image on top, thumbnails below */
+.generated-images-gallery {
+    display: flex !important;
+    flex-direction: column !important;
+}
+.generated-images-gallery .grid-container,
+.generated-images-gallery .gallery-container,
+.generated-images-gallery > div {
+    display: flex !important;
+    flex-direction: column !important;
+    width: 100% !important;
+    gap: 12px !important;
+}
+/* Selected/main image display on top - full width */
+.generated-images-gallery .grid-item:first-child,
+.generated-images-gallery .gallery-item:first-child,
+.generated-images-gallery .thumbnail:first-child {
+    width: 100% !important;
+    max-width: 100% !important;
+    order: 1 !important;
+}
+.generated-images-gallery .grid-item:first-child img,
+.generated-images-gallery .gallery-item:first-child img,
+.generated-images-gallery .thumbnail:first-child img {
+    width: 100% !important;
+    max-width: 100% !important;
+    height: auto !important;
+    object-fit: contain !important;
+    display: block !important;
+    max-height: 500px !important;
+}
+/* Thumbnails row below selected image */
+.generated-images-gallery .grid-item:not(:first-child),
+.generated-images-gallery .gallery-item:not(:first-child),
+.generated-images-gallery .thumbnail:not(:first-child) {
+    order: 2 !important;
+    width: calc(25% - 9px) !important;
+    max-width: calc(25% - 9px) !important;
+    cursor: pointer !important;
+    border: 2px solid transparent !important;
+    border-radius: 4px !important;
+    transition: border-color 0.2s !important;
+    padding: 4px !important;
+    flex-shrink: 0 !important;
+}
+/* Thumbnail row wrapper */
+.generated-images-gallery .thumbnail-row {
+    display: flex !important;
+    flex-direction: row !important;
+    flex-wrap: wrap !important;
+    gap: 8px !important;
+    width: 100% !important;
+    margin-top: 8px !important;
+}
+.generated-images-gallery .grid-item:not(:first-child) img,
+.generated-images-gallery .gallery-item:not(:first-child) img,
+.generated-images-gallery .thumbnail:not(:first-child) img {
+    width: 100% !important;
+    height: auto !important;
+    object-fit: cover !important;
+    border-radius: 2px !important;
+    aspect-ratio: 1 !important;
+}
+.generated-images-gallery .grid-item:not(:first-child):hover,
+.generated-images-gallery .gallery-item:not(:first-child):hover,
+.generated-images-gallery .thumbnail:not(:first-child):hover {
+    border-color: #4CAF50 !important;
+}
+/* Disable lightbox/fullscreen */
+.generated-images-gallery .lightbox,
+.generated-images-gallery .gallery-lightbox,
+.generated-images-gallery .lightbox-overlay {
+    display: none !important;
+}
+.generated-images-gallery a {
+    pointer-events: none !important;
+    cursor: default !important;
+}
+.generated-images-gallery .gallery-item a,
+.generated-images-gallery .grid-item a {
+    pointer-events: none !important;
+}
+.generated-images-gallery img {
+    pointer-events: auto !important;
+    cursor: pointer !important;
+}
+.generated-images-gallery .gallery-item:first-child img {
+    cursor: default !important;
+}
+.generate-button-full-width {
+    width: 100% !important;
+    max-width: 100% !important;
+}
+"""
+
+
 def build_interface() -> gr.Blocks:
-    custom_css = """
-    .theme-toggle-btn {
-        min-width: 40px !important;
-        width: 40px !important;
-        padding: 8px !important;
-        position: relative !important;
-    }
-    .theme-toggle-btn::before {
-        content: "Toggle light / dark theme";
-        position: absolute;
-        bottom: calc(100% + 8px);
-        left: 50%;
-        transform: translateX(-50%);
-        background: rgba(0, 0, 0, 0.85);
-        color: white;
-        padding: 6px 10px;
-        border-radius: 4px;
-        font-size: 12px;
-        white-space: nowrap;
-        opacity: 0;
-        pointer-events: none;
-        transition: opacity 0.2s;
-        z-index: 1000;
-    }
-    .theme-toggle-btn:hover::before {
-        opacity: 1;
-    }
-    /* Gallery layout: selected image on top, thumbnails below */
-    .generated-images-gallery {
-        display: flex !important;
-        flex-direction: column !important;
-    }
-    .generated-images-gallery .grid-container,
-    .generated-images-gallery .gallery-container,
-    .generated-images-gallery > div {
-        display: flex !important;
-        flex-direction: column !important;
-        width: 100% !important;
-        gap: 12px !important;
-    }
-    /* Selected/main image display on top - full width */
-    .generated-images-gallery .grid-item:first-child,
-    .generated-images-gallery .gallery-item:first-child,
-    .generated-images-gallery .thumbnail:first-child {
-        width: 100% !important;
-        max-width: 100% !important;
-        order: 1 !important;
-    }
-    .generated-images-gallery .grid-item:first-child img,
-    .generated-images-gallery .gallery-item:first-child img,
-    .generated-images-gallery .thumbnail:first-child img {
-        width: 100% !important;
-        max-width: 100% !important;
-        height: auto !important;
-        object-fit: contain !important;
-        display: block !important;
-        max-height: 500px !important;
-    }
-    /* Thumbnails row below selected image */
-    .generated-images-gallery .grid-item:not(:first-child),
-    .generated-images-gallery .gallery-item:not(:first-child),
-    .generated-images-gallery .thumbnail:not(:first-child) {
-        order: 2 !important;
-        width: calc(25% - 9px) !important;
-        max-width: calc(25% - 9px) !important;
-        cursor: pointer !important;
-        border: 2px solid transparent !important;
-        border-radius: 4px !important;
-        transition: border-color 0.2s !important;
-        padding: 4px !important;
-        flex-shrink: 0 !important;
-    }
-    /* Thumbnail row wrapper */
-    .generated-images-gallery .thumbnail-row {
-        display: flex !important;
-        flex-direction: row !important;
-        flex-wrap: wrap !important;
-        gap: 8px !important;
-        width: 100% !important;
-        margin-top: 8px !important;
-    }
-    .generated-images-gallery .grid-item:not(:first-child) img,
-    .generated-images-gallery .gallery-item:not(:first-child) img,
-    .generated-images-gallery .thumbnail:not(:first-child) img {
-        width: 100% !important;
-        height: auto !important;
-        object-fit: cover !important;
-        border-radius: 2px !important;
-        aspect-ratio: 1 !important;
-    }
-    .generated-images-gallery .grid-item:not(:first-child):hover,
-    .generated-images-gallery .gallery-item:not(:first-child):hover,
-    .generated-images-gallery .thumbnail:not(:first-child):hover {
-        border-color: #4CAF50 !important;
-    }
-    /* Disable lightbox/fullscreen */
-    .generated-images-gallery .lightbox,
-    .generated-images-gallery .gallery-lightbox,
-    .generated-images-gallery .lightbox-overlay {
-        display: none !important;
-    }
-    .generated-images-gallery a {
-        pointer-events: none !important;
-        cursor: default !important;
-    }
-    .generated-images-gallery .gallery-item a,
-    .generated-images-gallery .grid-item a {
-        pointer-events: none !important;
-    }
-    .generated-images-gallery img {
-        pointer-events: auto !important;
-        cursor: pointer !important;
-    }
-    .generated-images-gallery .gallery-item:first-child img {
-        cursor: default !important;
-    }
-    .generate-button-full-width {
-        width: 100% !important;
-        max-width: 100% !important;
-    }
-    """
-    with gr.Blocks(title="Qwen-Image Studio", css=custom_css) as demo:
+    with gr.Blocks(title="Qwen-Image Studio") as demo:
         gr.HTML(f"<script>{SCROLL_GALLERY_TO_TOP_JS}</script>", visible=False)
         with gr.Row():
             with gr.Column(scale=10):
                 gr.Markdown(
                     "## Qwen-Image Studio\n"
-                    "Generate or edit images using Qwen/Qwen-Image with Apple Silicon (MPS), "
-                    "CUDA, or CPU backends. Fast/Ultra-fast modes use Lightning LoRA for regular edits "
-                    "or Rapid-AIO transformer for anime mode; Batman mode adds LEGO Batman photobombs.",
+                    "Generate and edit images using Qwen models with Apple Silicon (MPS), "
+                    "CUDA, or CPU backends. Generate text-to-image or edit images with prompts. "
+                    "Fast/Ultra-fast modes use Lightning LoRA for regular edits or Rapid-AIO for anime; "
+                    "Batman mode adds LEGO Batman photobombs.",
                 )
             with gr.Column(scale=0, min_width=50):
                 theme_toggle = gr.Button(
@@ -816,7 +832,7 @@ def build_interface() -> gr.Blocks:
                     )
                     lora = gr.Textbox(
                         label="Custom LoRA (path or HF repo)",
-                        placeholder="flymy-ai/qwen-image-anime-irl-lora",
+                        placeholder="e.g., autoweeb/Qwen-Image-Edit-2509-Photo-to-Anime, flymy-ai/qwen-image-anime-irl-lora",
                     )
                     quantization = gr.Dropdown(
                         label="Quantization (GGUF)",
@@ -842,7 +858,6 @@ def build_interface() -> gr.Blocks:
                         height=600,
                         preview=True,
                         show_label=True,
-                        show_download_button=True,
                         elem_classes=["generated-images-gallery"],
                     )
                     log = gr.Textbox(label="Event log", lines=12)
@@ -985,7 +1000,7 @@ def build_interface() -> gr.Blocks:
                     )
                     lora_edit = gr.Textbox(
                         label="Custom LoRA (path or HF repo)",
-                        placeholder="flymy-ai/qwen-image-anime-irl-lora",
+                        placeholder="e.g., autoweeb/Qwen-Image-Edit-2509-Photo-to-Anime, flymy-ai/qwen-image-anime-irl-lora",
                     )
                     quantization_edit = gr.Dropdown(
                         label="Quantization (GGUF)",
@@ -1011,7 +1026,6 @@ def build_interface() -> gr.Blocks:
                         height=300,
                         preview=True,
                         show_label=True,
-                        show_download_button=False,
                         interactive=True,
                     )
                     edited_preview = gr.Image(
@@ -1195,8 +1209,9 @@ def build_interface() -> gr.Blocks:
                 outputs=[edited_preview, edit_log],
             )
 
-        # Set dark theme on load
-        demo.load(fn=lambda: None, inputs=None, outputs=None, js=SET_DARK_THEME_JS)
+        # Note: In Gradio 6.x, automatic theme setting on load may not work
+        # Users can use the theme toggle button (🌙) in the UI
+        # demo.load(fn=lambda: None, inputs=None, outputs=None, js=SET_DARK_THEME_JS)
 
     return demo
 
@@ -1208,10 +1223,12 @@ def launch(
 ):
     demo = build_interface()
     demo = demo.queue(max_size=8)
+    # In Gradio 6.x, CSS must be passed to launch(), not Blocks()
     demo.launch(
         server_name=server_name,
         server_port=server_port,
         share=share,
+        css=CUSTOM_CSS,
     )
 
 
