@@ -14,11 +14,11 @@ license = "MIT"
 authors = [
     { name = "Ivan Fioravanti", email = "ivanfioravanti@users.noreply.github.com" }
 ]
-requires-python = ">=3.9"
+requires-python = ">=3.10"
 dependencies = [
     "torch>=2.0.0",
     "torchvision>=0.15.0",
-    "diffusers @ git+https://github.com/huggingface/diffusers",
+    "diffusers>=0.36",
     "transformers>=4.35.0",
     "accelerate>=0.25.0",
     "safetensors>=0.4.0",
