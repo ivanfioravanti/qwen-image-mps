@@ -527,6 +527,90 @@ def merge_lora_from_safetensors(pipe, lora_path):
     return pipe
 
 
+def build_layer_parser(subparsers) -> argparse.ArgumentParser:
+    parser = subparsers.add_parser(
+        "layer",
+        help="Decompose an image into multiple transparent layers",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    parser.add_argument(
+        "-i",
+        "--input",
+        type=str,
+        required=True,
+        help="Path to the input RGBA image to decompose into layers.",
+    )
+    parser.add_argument(
+        "-p",
+        "--prompt",
+        type=str,
+        default=None,
+        help="Text describing the image content (auto-generated if not provided).",
+    )
+    parser.add_argument(
+        "--negative-prompt",
+        dest="negative_prompt",
+        type=str,
+        default=" ",
+        help="Text to discourage in the decomposition.",
+    )
+    parser.add_argument(
+        "-s",
+        "--steps",
+        type=int,
+        default=50,
+        help="Number of inference steps.",
+    )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=None,
+        help="Random seed for reproducible results.",
+    )
+    parser.add_argument(
+        "-l",
+        "--layers",
+        type=int,
+        default=4,
+        choices=range(2, 11),
+        help="Number of output layers (2-10).",
+    )
+    parser.add_argument(
+        "--cfg-scale",
+        dest="cfg_scale",
+        type=float,
+        default=4.0,
+        help="Classifier-free guidance scale.",
+    )
+    parser.add_argument(
+        "--cfg-norm",
+        dest="cfg_norm",
+        action="store_true",
+        default=True,
+        help="Enable CFG normalization.",
+    )
+    parser.add_argument(
+        "--use-en-prompt",
+        dest="use_en_prompt",
+        action="store_true",
+        default=True,
+        help="Auto-generate English prompt from image.",
+    )
+    parser.add_argument(
+        "--outdir",
+        dest="output_dir",
+        type=str,
+        default=None,
+        help="Directory to save layer images (default: ./output).",
+    )
+    parser.add_argument(
+        "--zip",
+        action="store_true",
+        help="Save layers as a ZIP archive instead of individual PNGs.",
+    )
+    return parser
+
+
 def build_edit_parser(subparsers) -> argparse.ArgumentParser:
     parser = subparsers.add_parser(
         "edit",
@@ -1701,6 +1785,108 @@ def edit_image(args) -> None:
     return saved_path
 
 
+def layer_image(args) -> list[str]:
+    """Decompose an image into multiple transparent layers using Qwen-Image-Layered."""
+    import io
+    import zipfile
+    from pathlib import Path
+
+    from PIL import Image
+
+    try:
+        from diffusers import QwenImageLayeredPipeline
+    except ImportError:
+        print("Error: QwenImageLayeredPipeline not found.")
+        print("This feature requires diffusers >= 0.30.0")
+        return []
+
+    device, torch_dtype = get_device_and_dtype()
+
+    # Load the layered pipeline
+    print("Loading Qwen-Image-Layered model...")
+    pipeline = QwenImageLayeredPipeline.from_pretrained("Qwen/Qwen-Image-Layered")
+    pipeline = pipeline.to(device)
+    # Convert all components to desired dtype for MPS compatibility
+    pipeline = convert_pipeline_to_dtype(pipeline, torch_dtype)
+    pipeline.set_progress_bar_config(disable=None)
+
+    # Load input image
+    input_path = args.input
+    try:
+        input_image = Image.open(input_path).convert("RGBA")
+        print(
+            f"Loaded input image: {input_path} ({input_image.size[0]}x{input_image.size[1]})"
+        )
+    except Exception as e:
+        print(f"Error loading input image: {e}")
+        return []
+
+    # Set up generation parameters
+    seed = args.seed if args.seed is not None else secrets.randbits(63)
+    generator = create_generator(device, seed)
+
+    num_layers = getattr(args, "layers", 4)
+    num_steps = getattr(args, "steps", 50)
+    cfg_scale = getattr(args, "cfg_scale", 4.0)
+    cfg_norm = getattr(args, "cfg_norm", True)
+    use_en_prompt = getattr(args, "use_en_prompt", True)
+    negative_prompt = getattr(args, "negative_prompt", " ")
+    prompt = getattr(args, "prompt", None)
+
+    print(f"Decomposing image into {num_layers} layers...")
+    print(f"Using {num_steps} inference steps, CFG scale {cfg_scale}")
+
+    # Perform the layered decomposition
+    with torch.inference_mode():
+        output = pipeline(
+            image=input_image,
+            prompt=prompt,
+            negative_prompt=negative_prompt,
+            num_inference_steps=num_steps,
+            generator=generator,
+            true_cfg_scale=cfg_scale,
+            layers=num_layers,
+            cfg_normalize=cfg_norm,
+            use_en_prompt=use_en_prompt,
+        )
+
+    # Get the layer images
+    layer_images = output.images
+
+    # Determine output directory
+    default_output_dir = getattr(args, "output_dir", None) or "output"
+    os.makedirs(default_output_dir, exist_ok=True)
+
+    saved_paths = []
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+
+    # Save layers
+    if getattr(args, "zip", False):
+        # Save as ZIP archive
+        zip_path = os.path.join(default_output_dir, f"layers-{timestamp}.zip")
+        with zipfile.ZipFile(zip_path, "w") as zip_file:
+            for i, layer_img in enumerate(layer_images, start=1):
+                layer_filename = f"layer_{i}.png"
+                img_buffer = io.BytesIO()
+                layer_img.save(img_buffer, format="PNG")
+                img_buffer.seek(0)
+                zip_file.writestr(layer_filename, img_buffer.read())
+                saved_paths.append(f"{layer_filename} in {zip_path}")
+        print(f"\nLayers saved to ZIP archive: {zip_path}")
+    else:
+        # Save individual PNG files
+        for i, layer_img in enumerate(layer_images, start=1):
+            layer_filename = f"layer_{i}-{timestamp}.png"
+            output_path = os.path.join(default_output_dir, layer_filename)
+            layer_img.save(output_path)
+            saved_paths.append(os.path.abspath(output_path))
+        print(f"\nLayers saved (seed: {seed}):")
+        for path in saved_paths:
+            print(f"- {path}")
+
+    return saved_paths
+
+
 def main() -> None:
     import sys
 
@@ -1727,9 +1913,10 @@ def main() -> None:
         dest="command", help="Available commands", required=False
     )
 
-    # Add generate and edit subcommands
+    # Add generate, edit, and layer subcommands
     build_generate_parser(subparsers)
     build_edit_parser(subparsers)
+    build_layer_parser(subparsers)
 
     args = parser.parse_args()
 
@@ -1739,12 +1926,15 @@ def main() -> None:
         list(generate_image(args))
     elif args.command == "edit":
         edit_image(args)
+    elif args.command == "layer":
+        layer_image(args)
     else:
         # Default to generate for backward compatibility if no subcommand
         # This allows the old style invocation to still work
         if len(sys.argv) > 1 and sys.argv[1] not in [
             "generate",
             "edit",
+            "layer",
             "-h",
             "--help",
         ]:
