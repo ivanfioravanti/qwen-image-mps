@@ -7,8 +7,8 @@ allow-direct-references = true
 
 [project]
 name = "qwen-image-mps"
-version = "0.7.0"
-description = "Generate images with Qwen-Image on Apple Silicon (MPS) and other devices"
+version = "0.7.1"
+description = "Generate and edit images with Qwen models on Apple Silicon (MPS) and other devices"
 readme = "README.md"
 license = "MIT"
 authors = [
@@ -18,14 +18,14 @@ requires-python = ">=3.9"
 dependencies = [
     "torch>=2.0.0",
     "torchvision>=0.15.0",
-    "diffusers>=0.35.2",
+    "diffusers @ git+https://github.com/huggingface/diffusers",
     "transformers>=4.35.0",
     "accelerate>=0.25.0",
     "safetensors>=0.4.0",
     "huggingface-hub>=0.20.0",
     "Pillow>=9.0.0",
     "gguf>=0.10.0",
-    "gradio>=4.42.0",
+    "gradio>=6.0.0",
 ]
 classifiers = [
     "Development Status :: 4 - Beta",
