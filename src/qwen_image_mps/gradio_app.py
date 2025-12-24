@@ -11,7 +11,7 @@ from typing import Generator, List, Sequence
 import gradio as gr
 from PIL import Image
 
-from .cli import GenerationStep, edit_image, generate_image
+from .cli import GenerationStep, edit_image, generate_image, layered_image
 
 
 class LoggingStream:
@@ -637,6 +637,86 @@ def run_edit(  # pragma: no cover - exercised via manual UI usage
     yield edited_image, final_log
 
 
+def run_layered(  # pragma: no cover - exercised via manual UI usage
+    input_image,
+    layers: int,
+    steps: float,
+    seed,
+    resolution: int,
+    cfg_scale: float,
+    cfg_normalize: bool,
+    use_en_prompt: bool,
+    output_dir: str,
+):
+    """Run the layered image decomposition."""
+    if not input_image:
+        raise gr.Error("Please upload an image to decompose.")
+
+    # Get the file path from the uploaded image
+    if isinstance(input_image, dict):
+        input_path = input_image["name"]
+    elif isinstance(input_image, str):
+        input_path = input_image
+    else:
+        raise gr.Error("Could not read uploaded image path.")
+
+    output_directory = _coerce_output_dir(output_dir)
+
+    # Ensure steps is never None
+    steps_value = int(steps) if steps is not None else 50
+
+    args = SimpleNamespace(
+        input=input_path,
+        layers=layers,
+        steps=steps_value,
+        seed=_normalize_optional_int(seed),
+        resolution=resolution,
+        cfg_scale=cfg_scale,
+        cfg_normalize=cfg_normalize,
+        use_en_prompt=use_en_prompt,
+        output_dir=output_directory,
+    )
+
+    logs: List[str] = []
+    original_stdout = sys.stdout
+    original_stderr = sys.stderr
+    saved_paths = []
+
+    try:
+        # Replace stdout/stderr with logging streams
+        logging_stdout = LoggingStream(original_stdout, logs)
+        logging_stderr = LoggingStream(original_stderr, logs, prefix="[stderr] ")
+        sys.stdout = logging_stdout
+        sys.stderr = logging_stderr
+
+        try:
+            saved_paths = layered_image(args)
+
+            # Yield log updates
+            if logs:
+                log_text = "\n".join(logs)
+                yield None, log_text
+        finally:
+            # Restore original streams
+            sys.stdout = original_stdout
+            sys.stderr = original_stderr
+            logging_stdout.flush()
+            logging_stderr.flush()
+    except Exception as exc:  # pragma: no cover
+        logs.append(f"Error: {exc}")
+        log_text = "\n".join(logs) if logs else str(exc)
+        yield None, log_text
+        raise gr.Error(str(exc)) from exc
+
+    if not saved_paths:
+        raise gr.Error("Layer decomposition failed.")
+
+    # Load all layer images
+    layer_images = _load_images(saved_paths)
+    final_log = "\n".join(logs) if logs else f"Saved {len(saved_paths)} layer images"
+    yield layer_images, final_log
+
+
 # Custom CSS for the Gradio interface
 CUSTOM_CSS = """
 .theme-toggle-btn {
@@ -1207,6 +1287,92 @@ def build_interface() -> gr.Blocks:
                     output_dir_edit,
                 ],
                 outputs=[edited_preview, edit_log],
+            )
+
+        with gr.Tab("Layered"):
+            gr.Markdown(
+                "### Layered Image Decomposition\n"
+                "Decompose an image into multiple RGBA layers for independent editing. "
+                "Each layer can be separately manipulated, resized, repositioned, or recolored."
+            )
+            with gr.Row():
+                with gr.Column(scale=1):
+                    input_layered = gr.File(
+                        label="Upload image",
+                        file_types=["image"],
+                        file_count="single",
+                    )
+                    with gr.Row():
+                        layers = gr.Slider(
+                            label="Number of layers",
+                            minimum=2,
+                            maximum=16,
+                            step=1,
+                            value=4,
+                        )
+                        resolution = gr.Dropdown(
+                            label="Resolution",
+                            choices=[640, 1024],
+                            value=640,
+                        )
+                    steps_layered = gr.Slider(
+                        label="Steps",
+                        minimum=4,
+                        maximum=100,
+                        step=1,
+                        value=50,
+                    )
+                    with gr.Row():
+                        cfg_scale_layered = gr.Number(
+                            label="CFG scale",
+                            value=4.0,
+                            precision=1,
+                        )
+                        seed_layered = gr.Number(
+                            label="Seed (optional)", precision=0
+                        )
+                    with gr.Row():
+                        cfg_normalize = gr.Checkbox(
+                            label="CFG normalization", value=True
+                        )
+                        use_en_prompt = gr.Checkbox(
+                            label="Auto caption (EN)", value=True
+                        )
+                    output_dir_layered = gr.Textbox(
+                        label="Output directory",
+                        value="output",
+                    )
+                with gr.Column(scale=1):
+                    layered_button = gr.Button(
+                        "Decompose",
+                        variant="primary",
+                        elem_classes=["generate-button-full-width"],
+                    )
+                    layers_gallery = gr.Gallery(
+                        label="Decomposed layers (image_0, image_1, ...)",
+                        columns=2,
+                        rows=4,
+                        height=600,
+                        preview=True,
+                        show_label=True,
+                        elem_classes=["generated-images-gallery"],
+                    )
+                    layered_log = gr.Textbox(label="Status", lines=8)
+
+            layered_button.click(
+                fn=run_layered,
+                inputs=[
+                    input_layered,
+                    layers,
+                    steps_layered,
+                    seed_layered,
+                    resolution,
+                    cfg_scale_layered,
+                    cfg_normalize,
+                    use_en_prompt,
+                    output_dir_layered,
+                ],
+                outputs=[layers_gallery, layered_log],
             )
 
         # Note: In Gradio 6.x, automatic theme setting on load may not work

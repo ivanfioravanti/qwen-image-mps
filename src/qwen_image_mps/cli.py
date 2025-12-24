@@ -644,6 +644,90 @@ def build_edit_parser(subparsers) -> argparse.ArgumentParser:
     return parser
 
 
+def build_layered_parser(subparsers) -> argparse.ArgumentParser:
+    """Build the argument parser for the layered image decomposition command."""
+    parser = subparsers.add_parser(
+        "layered",
+        help="Decompose an image into multiple RGBA layers for editing",
+        formatter_class=argparse.ArgumentDefaultsHelpFormatter,
+    )
+    parser.add_argument(
+        "-i",
+        "--input",
+        type=str,
+        required=True,
+        help="Path to the input image to decompose into layers.",
+    )
+    parser.add_argument(
+        "-l",
+        "--layers",
+        type=int,
+        default=4,
+        help="Number of layers to decompose the image into (e.g., 3, 4, 8).",
+    )
+    parser.add_argument(
+        "-s",
+        "--steps",
+        type=int,
+        default=50,
+        help="Number of inference steps.",
+    )
+    parser.add_argument(
+        "--seed",
+        type=int,
+        default=None,
+        help="Random seed for reproducible decomposition. If not provided, a random seed will be used.",
+    )
+    parser.add_argument(
+        "--resolution",
+        type=int,
+        default=640,
+        choices=[640, 1024],
+        help="Resolution bucket (640 recommended, 1024 for higher detail).",
+    )
+    parser.add_argument(
+        "--cfg-scale",
+        dest="cfg_scale",
+        type=float,
+        default=4.0,
+        help="Classifier-free guidance (CFG) scale.",
+    )
+    parser.add_argument(
+        "--cfg-normalize",
+        dest="cfg_normalize",
+        action="store_true",
+        default=True,
+        help="Enable CFG normalization (default: True).",
+    )
+    parser.add_argument(
+        "--no-cfg-normalize",
+        dest="cfg_normalize",
+        action="store_false",
+        help="Disable CFG normalization.",
+    )
+    parser.add_argument(
+        "--use-en-prompt",
+        dest="use_en_prompt",
+        action="store_true",
+        default=True,
+        help="Use automatic caption in English if no prompt provided (default: True).",
+    )
+    parser.add_argument(
+        "--no-use-en-prompt",
+        dest="use_en_prompt",
+        action="store_false",
+        help="Disable automatic English captioning.",
+    )
+    parser.add_argument(
+        "--outdir",
+        dest="output_dir",
+        type=str,
+        default=None,
+        help="Directory to save layer images (default: ./output).",
+    )
+    return parser
+
+
 def get_device_and_dtype():
     """Get the optimal device and dtype for the current system."""
 
@@ -656,6 +740,48 @@ def get_device_and_dtype():
     else:
         print("Using CPU")
         return "cpu", torch.float32
+
+
+def move_pipeline_to_device(pipeline, device, torch_dtype):
+    """Move pipeline components to device and convert dtype for MPS compatibility.
+
+    Moves components individually to avoid hanging on large models, and ensures
+    all components use the same dtype to avoid Metal kernel dtype mismatch errors.
+
+    Args:
+        pipeline: The pipeline to move
+        device: Target device (e.g., 'mps', 'cuda')
+        torch_dtype: Target dtype (e.g., torch.bfloat16 for MPS)
+    """
+
+    def _to_device_and_dtype(module, name):
+        if module is not None and hasattr(module, "to"):
+            print(f"  Moving {name} to {device}...")
+            module = module.to(device=device, dtype=torch_dtype)
+            print(f"  ✓ {name} moved")
+        return module
+
+    # Move transformer
+    if hasattr(pipeline, "transformer"):
+        pipeline.transformer = _to_device_and_dtype(pipeline.transformer, "transformer")
+
+    # Move text encoder
+    if hasattr(pipeline, "text_encoder"):
+        pipeline.text_encoder = _to_device_and_dtype(pipeline.text_encoder, "text_encoder")
+
+    # Move secondary text encoder if present (e.g., text_encoder_2)
+    if hasattr(pipeline, "text_encoder_2"):
+        pipeline.text_encoder_2 = _to_device_and_dtype(pipeline.text_encoder_2, "text_encoder_2")
+
+    # Move VAE and its submodules (encoder / decoder)
+    if hasattr(pipeline, "vae"):
+        pipeline.vae = _to_device_and_dtype(pipeline.vae, "vae")
+        if hasattr(pipeline.vae, "encoder"):
+            pipeline.vae.encoder = _to_device_and_dtype(pipeline.vae.encoder, "vae.encoder")
+        if hasattr(pipeline.vae, "decoder"):
+            pipeline.vae.decoder = _to_device_and_dtype(pipeline.vae.decoder, "vae.decoder")
+
+    return pipeline
 
 
 def convert_pipeline_to_dtype(pipeline, torch_dtype):
@@ -847,9 +973,8 @@ def load_gguf_pipeline(quantization: str, device, torch_dtype, edit_mode=False):
                 transformer=transformer,
             )
 
-            pipeline = pipeline.to(device)
-            # Convert all components to desired dtype for MPS compatibility
-            pipeline = convert_pipeline_to_dtype(pipeline, torch_dtype)
+            print("Moving pipeline to device...")
+            pipeline = move_pipeline_to_device(pipeline, device, torch_dtype)
 
             # Enable memory optimizations
             # pipeline.enable_attention_slicing(slice_size=1)
@@ -869,9 +994,8 @@ def load_gguf_pipeline(quantization: str, device, torch_dtype, edit_mode=False):
             pipeline = DiffusionPipeline.from_pretrained(
                 "Qwen/Qwen-Image",
             )
-            pipeline = pipeline.to(device)
-            # Convert all components to desired dtype for MPS compatibility
-            pipeline = convert_pipeline_to_dtype(pipeline, torch_dtype)
+            print("Moving pipeline to device...")
+            pipeline = move_pipeline_to_device(pipeline, device, torch_dtype)
             print("Successfully loaded standard model")
             return pipeline
 
@@ -886,9 +1010,8 @@ def load_gguf_pipeline(quantization: str, device, torch_dtype, edit_mode=False):
             pipeline = DiffusionPipeline.from_pretrained(
                 "Qwen/Qwen-Image",
             )
-            pipeline = pipeline.to(device)
-            # Convert all components to desired dtype for MPS compatibility
-            pipeline = convert_pipeline_to_dtype(pipeline, torch_dtype)
+            print("Moving pipeline to device...")
+            pipeline = move_pipeline_to_device(pipeline, device, torch_dtype)
             print("Successfully loaded standard model")
             return pipeline
 
@@ -1231,15 +1354,13 @@ def generate_image(args):
             if pipe is None:
                 print("Failed to load GGUF model, falling back to standard model...")
                 pipe = DiffusionPipeline.from_pretrained(model_name)
-                pipe = pipe.to(device)
-                # Convert all components to desired dtype for MPS compatibility
-                pipe = convert_pipeline_to_dtype(pipe, torch_dtype)
+                print("Moving pipeline to device...")
+                pipe = move_pipeline_to_device(pipe, device, torch_dtype)
         else:
             # Load standard model
             pipe = DiffusionPipeline.from_pretrained(model_name)
-            pipe = pipe.to(device)
-            # Convert all components to desired dtype for MPS compatibility
-            pipe = convert_pipeline_to_dtype(pipe, torch_dtype)
+            print("Moving pipeline to device...")
+            pipe = move_pipeline_to_device(pipe, device, torch_dtype)
 
         # pipe.enable_attention_slicing(slice_size=1)
         # pipe.enable_vae_slicing()
@@ -1484,9 +1605,8 @@ def edit_image(args) -> None:
             print("GGUF models for editing may not be available yet.")
             print("Falling back to standard edit model...")
             pipeline = EditPipeline.from_pretrained("Qwen/Qwen-Image-Edit-2511")
-            pipeline = pipeline.to(device)
-            # Convert all components to desired dtype for MPS compatibility
-            pipeline = convert_pipeline_to_dtype(pipeline, torch_dtype)
+            print("Moving pipeline to device...")
+            pipeline = move_pipeline_to_device(pipeline, device, torch_dtype)
     elif use_rapid_aio:
         # Use Rapid-AIO transformer for optimized fast inference
         rapid_transformer = load_rapid_aio_transformer(device, torch_dtype)
@@ -1498,9 +1618,8 @@ def edit_image(args) -> None:
                 "Qwen/Qwen-Image-Edit-2511",
                 transformer=rapid_transformer,
             )
-            pipeline = pipeline.to(device)
-            # Convert all components to desired dtype for MPS compatibility
-            pipeline = convert_pipeline_to_dtype(pipeline, torch_dtype)
+            print("Moving pipeline to device...")
+            pipeline = move_pipeline_to_device(pipeline, device, torch_dtype)
         else:
             # Fallback to standard pipeline if Rapid-AIO fails
             print(
@@ -1508,16 +1627,14 @@ def edit_image(args) -> None:
             )
             print("Loading Qwen-Image-Edit model for image editing...")
             pipeline = EditPipeline.from_pretrained("Qwen/Qwen-Image-Edit-2511")
-            pipeline = pipeline.to(device)
-            # Convert all components to desired dtype for MPS compatibility
-            pipeline = convert_pipeline_to_dtype(pipeline, torch_dtype)
+            print("Moving pipeline to device...")
+            pipeline = move_pipeline_to_device(pipeline, device, torch_dtype)
     else:
         # Use standard transformer (Rapid-AIO disabled)
         print("Loading Qwen-Image-Edit model with standard transformer...")
         pipeline = EditPipeline.from_pretrained("Qwen/Qwen-Image-Edit-2511")
-        pipeline = pipeline.to(device)
-        # Convert all components to desired dtype for MPS compatibility
-        pipeline = convert_pipeline_to_dtype(pipeline, torch_dtype)
+        print("Moving pipeline to device...")
+        pipeline = move_pipeline_to_device(pipeline, device, torch_dtype)
 
     pipeline.set_progress_bar_config(disable=None)
 
@@ -1701,6 +1818,113 @@ def edit_image(args) -> None:
     return saved_path
 
 
+def layered_image(args) -> list[str]:
+    """Decompose an image into multiple RGBA layers using Qwen-Image-Layered.
+
+    Args:
+        args: Namespace with layered decomposition arguments
+
+    Returns:
+        List of paths to the saved layer images
+    """
+    from PIL import Image
+
+    try:
+        from diffusers import QwenImageLayeredPipeline
+    except ImportError:
+        print("Error: Qwen-Image-Layered pipeline requires the latest version of diffusers.")
+        print("Please install with: pip install git+https://github.com/huggingface/diffusers")
+        return []
+
+    device, torch_dtype = get_device_and_dtype()
+
+    print("Loading Qwen-Image-Layered model...")
+    pipeline = QwenImageLayeredPipeline.from_pretrained(
+        "Qwen/Qwen-Image-Layered",
+        torch_dtype=torch_dtype,
+    )
+    print("Moving pipeline to device...")
+    pipeline = move_pipeline_to_device(pipeline, device, torch_dtype)
+    pipeline.set_progress_bar_config(disable=None)
+
+    # Load input image
+    try:
+        image = Image.open(args.input).convert("RGBA")
+        print(f"Loaded input image: {args.input} ({image.size[0]}x{image.size[1]})")
+    except Exception as e:
+        print(f"Error loading input image: {e}")
+        return []
+
+    # Set up generation parameters
+    seed = args.seed if args.seed is not None else secrets.randbits(63)
+    generator = create_generator(device, seed)
+
+    # Get parameters from args
+    num_layers = getattr(args, "layers", 4)
+    num_steps = getattr(args, "steps", 50)
+    resolution = getattr(args, "resolution", 640)
+    cfg_scale = getattr(args, "cfg_scale", 4.0)
+    cfg_normalize = getattr(args, "cfg_normalize", True)
+    use_en_prompt = getattr(args, "use_en_prompt", True)
+
+    # Set up output directory
+    output_dir = getattr(args, "output_dir", None) or "output"
+    os.makedirs(output_dir, exist_ok=True)
+
+    print(f"\nDecomposing image into {num_layers} layers...")
+    print(f"Resolution: {resolution}")
+    print(f"CFG scale: {cfg_scale}")
+    print(f"CFG normalize: {cfg_normalize}")
+    print(f"Use EN prompt: {use_en_prompt}")
+    print(f"Steps: {num_steps}")
+    print(f"Seed: {seed}")
+
+    # Prepare inputs for the pipeline
+    inputs = {
+        "image": image,
+        "generator": generator,
+        "true_cfg_scale": cfg_scale,
+        "negative_prompt": " ",
+        "num_inference_steps": num_steps,
+        "num_images_per_prompt": 1,
+        "layers": num_layers,
+        "resolution": resolution,
+        "cfg_normalize": cfg_normalize,
+        "use_en_prompt": use_en_prompt,
+    }
+
+    # Run layer decomposition
+    with torch.inference_mode():
+        print("\nRunning layer decomposition...")
+        output = pipeline(**inputs)
+        # output.images may be a nested list structure - flatten it
+        layer_images = output.images
+        if isinstance(layer_images, list) and len(layer_images) > 0:
+            # Check if it's a nested list (list of lists)
+            if isinstance(layer_images[0], list):
+                # Flatten: get all images from the nested structure
+                layer_images = [img for sublist in layer_images for img in sublist]
+            elif isinstance(layer_images[0], (list, tuple)) and len(layer_images[0]) > 0:
+                # Handle other potential nested structures
+                layer_images = layer_images[0]
+
+    # Save each layer with index
+    timestamp = datetime.now().strftime("%Y%m%d-%H%M%S")
+    base_name = os.path.splitext(os.path.basename(args.input))[0]
+    saved_paths = []
+
+    for i, layer_img in enumerate(layer_images):
+        filename = f"{base_name}_layer_{i}_{timestamp}.png"
+        output_path = os.path.join(output_dir, filename)
+        layer_img.save(output_path)
+        saved_path = os.path.abspath(output_path)
+        saved_paths.append(saved_path)
+        print(f"Layer {i} saved to: {saved_path}")
+
+    print(f"\n✓ Successfully decomposed into {len(saved_paths)} layers")
+    return saved_paths
+
+
 def main() -> None:
     import sys
 
@@ -1727,9 +1951,10 @@ def main() -> None:
         dest="command", help="Available commands", required=False
     )
 
-    # Add generate and edit subcommands
+    # Add generate, edit, and layered subcommands
     build_generate_parser(subparsers)
     build_edit_parser(subparsers)
+    build_layered_parser(subparsers)
 
     args = parser.parse_args()
 
@@ -1739,12 +1964,15 @@ def main() -> None:
         list(generate_image(args))
     elif args.command == "edit":
         edit_image(args)
+    elif args.command == "layered":
+        layered_image(args)
     else:
         # Default to generate for backward compatibility if no subcommand
         # This allows the old style invocation to still work
         if len(sys.argv) > 1 and sys.argv[1] not in [
             "generate",
             "edit",
+            "layered",
             "-h",
             "--help",
         ]:
