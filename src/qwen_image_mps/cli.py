@@ -562,6 +562,18 @@ def build_layer_parser(subparsers) -> argparse.ArgumentParser:
         help="Number of inference steps.",
     )
     parser.add_argument(
+        "-f",
+        "--fast",
+        action="store_true",
+        help="Use Lightning LoRA for fast decomposition (8 steps).",
+    )
+    parser.add_argument(
+        "-uf",
+        "--ultra-fast",
+        action="store_true",
+        help="Use Lightning LoRA for ultra-fast decomposition (4 steps).",
+    )
+    parser.add_argument(
         "--seed",
         type=int,
         default=None,
@@ -579,8 +591,8 @@ def build_layer_parser(subparsers) -> argparse.ArgumentParser:
         "--cfg-scale",
         dest="cfg_scale",
         type=float,
-        default=4.0,
-        help="Classifier-free guidance scale.",
+        default=None,
+        help="Classifier-free guidance scale (auto-set for fast modes).",
     )
     parser.add_argument(
         "--cfg-norm",
@@ -1810,6 +1822,42 @@ def layer_image(args) -> list[str]:
     pipeline = convert_pipeline_to_dtype(pipeline, torch_dtype)
     pipeline.set_progress_bar_config(disable=None)
 
+    # Handle fast/ultra-fast modes with Lightning LoRA
+    ultra_fast = getattr(args, "ultra_fast", False)
+    fast = getattr(args, "fast", False)
+
+    if ultra_fast:
+        print("Loading Lightning LoRA for ultra-fast decomposition (4 steps)...")
+        lora_path = get_lora_path(ultra_fast=True)
+        if lora_path:
+            pipeline = merge_lora_from_safetensors(pipeline, lora_path)
+            num_steps = 4
+            cfg_scale = 1.0
+            print("Ultra-fast mode: 4 steps, CFG scale 1.0")
+        else:
+            print("Warning: Could not load Lightning LoRA, using standard settings...")
+            num_steps = getattr(args, "steps", 50)
+            cfg_scale = getattr(args, "cfg_scale", 4.0)
+    elif fast:
+        print("Loading Lightning LoRA for fast decomposition (8 steps)...")
+        lora_path = get_lora_path(ultra_fast=False)
+        if lora_path:
+            pipeline = merge_lora_from_safetensors(pipeline, lora_path)
+            num_steps = 8
+            cfg_scale = 1.0
+            print("Fast mode: 8 steps, CFG scale 1.0")
+        else:
+            print("Warning: Could not load Lightning LoRA, using standard settings...")
+            num_steps = getattr(args, "steps", 50)
+            cfg_scale = getattr(args, "cfg_scale", 4.0)
+    else:
+        num_steps = getattr(args, "steps", 50)
+        cfg_scale = getattr(args, "cfg_scale", 4.0)
+
+    # Override CFG scale if explicitly provided by user
+    if getattr(args, "cfg_scale", None) is not None:
+        cfg_scale = float(args.cfg_scale)
+
     # Load input image
     input_path = args.input
     try:
@@ -1826,8 +1874,6 @@ def layer_image(args) -> list[str]:
     generator = create_generator(device, seed)
 
     num_layers = getattr(args, "layers", 4)
-    num_steps = getattr(args, "steps", 50)
-    cfg_scale = getattr(args, "cfg_scale", 4.0)
     cfg_norm = getattr(args, "cfg_norm", True)
     use_en_prompt = getattr(args, "use_en_prompt", True)
     negative_prompt = getattr(args, "negative_prompt", " ")
@@ -1850,8 +1896,10 @@ def layer_image(args) -> list[str]:
             use_en_prompt=use_en_prompt,
         )
 
-    # Get the layer images
-    layer_images = output.images
+    # Get the layer images - output.images is nested list of lists
+    all_layers = []
+    for group in output.images:
+        all_layers.extend(group)
 
     # Determine output directory
     default_output_dir = getattr(args, "output_dir", None) or "output"
@@ -1865,7 +1913,7 @@ def layer_image(args) -> list[str]:
         # Save as ZIP archive
         zip_path = os.path.join(default_output_dir, f"layers-{timestamp}.zip")
         with zipfile.ZipFile(zip_path, "w") as zip_file:
-            for i, layer_img in enumerate(layer_images, start=1):
+            for i, layer_img in enumerate(all_layers, start=1):
                 layer_filename = f"layer_{i}.png"
                 img_buffer = io.BytesIO()
                 layer_img.save(img_buffer, format="PNG")
@@ -1875,7 +1923,7 @@ def layer_image(args) -> list[str]:
         print(f"\nLayers saved to ZIP archive: {zip_path}")
     else:
         # Save individual PNG files
-        for i, layer_img in enumerate(layer_images, start=1):
+        for i, layer_img in enumerate(all_layers, start=1):
             layer_filename = f"layer_{i}-{timestamp}.png"
             output_path = os.path.join(default_output_dir, layer_filename)
             layer_img.save(output_path)

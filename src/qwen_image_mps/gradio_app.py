@@ -644,6 +644,8 @@ def run_layer(
     steps: float,
     seed,
     num_layers: float,
+    fast: bool,
+    ultra_fast: bool,
     cfg_scale,
     output_dir: str,
 ):
@@ -671,11 +673,13 @@ def run_layer(
         steps=steps_value,
         seed=_normalize_optional_int(seed),
         layers=num_layers_value,
-        cfg_scale=_normalize_optional_float(cfg_scale) or 4.0,
+        cfg_scale=_normalize_optional_float(cfg_scale),
         cfg_norm=True,
         use_en_prompt=True,
         output_dir=_coerce_output_dir(output_dir),
         zip=False,
+        fast=bool(fast),
+        ultra_fast=bool(ultra_fast),
     )
 
     logs: List[str] = []
@@ -1330,6 +1334,11 @@ def build_interface() -> gr.Blocks:
                             step=1,
                             value=4,
                         )
+                    with gr.Row():
+                        fast_layer = gr.Checkbox(label="Fast (Lightning 8-step)")
+                        ultra_fast_layer = gr.Checkbox(
+                            label="Ultra-fast (Lightning 4-step)"
+                        )
                     seed_layer = gr.Number(label="Seed (optional)", precision=0)
                     cfg_scale_layer = gr.Number(
                         label="CFG scale",
@@ -1384,6 +1393,28 @@ def build_interface() -> gr.Blocks:
                 except (TypeError, ValueError):
                     return 50
 
+            def _safe_layer_fast_toggle(fast_val, ultra_val):
+                """Handle Fast checkbox interactions for layer tab."""
+                fast_val = bool(fast_val) if fast_val is not None else False
+                ultra_val = bool(ultra_val) if ultra_val is not None else False
+
+                if fast_val:
+                    return True, False, 8, 1.0, 8
+                if ultra_val:
+                    return False, True, 4, 1.0, 4
+                return False, False, 50, 4.0, 50
+
+            def _safe_layer_ultra_toggle(fast_val, ultra_val):
+                """Handle Ultra-fast checkbox interactions for layer tab."""
+                fast_val = bool(fast_val) if fast_val is not None else False
+                ultra_val = bool(ultra_val) if ultra_val is not None else False
+
+                if ultra_val:
+                    return False, True, 4, 1.0, 4
+                if fast_val:
+                    return True, False, 8, 1.0, 8
+                return False, False, 50, 4.0, 50
+
             input_layer_image.upload(
                 fn=_handle_layer_file_upload,
                 inputs=[input_layer_image],
@@ -1396,6 +1427,30 @@ def build_interface() -> gr.Blocks:
                 outputs=[steps_layer_state],
             )
 
+            fast_layer.change(
+                fn=_safe_layer_fast_toggle,
+                inputs=[fast_layer, ultra_fast_layer],
+                outputs=[
+                    fast_layer,
+                    ultra_fast_layer,
+                    steps_layer,
+                    cfg_scale_layer,
+                    steps_layer_state,
+                ],
+            )
+
+            ultra_fast_layer.change(
+                fn=_safe_layer_ultra_toggle,
+                inputs=[fast_layer, ultra_fast_layer],
+                outputs=[
+                    fast_layer,
+                    ultra_fast_layer,
+                    steps_layer,
+                    cfg_scale_layer,
+                    steps_layer_state,
+                ],
+            )
+
             layer_button.click(
                 fn=run_layer,
                 inputs=[
@@ -1405,6 +1460,8 @@ def build_interface() -> gr.Blocks:
                     steps_layer_state,
                     seed_layer,
                     num_layers,
+                    fast_layer,
+                    ultra_fast_layer,
                     cfg_scale_layer,
                     output_dir_layer,
                 ],
