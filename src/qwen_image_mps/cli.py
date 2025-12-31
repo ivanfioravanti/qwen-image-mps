@@ -1713,7 +1713,7 @@ def main() -> None:
         from . import __version__
     except ImportError:
         # Fallback when module is loaded without package context
-        __version__ = "0.7.0"
+        __version__ = "0.7.2"
 
     parser = argparse.ArgumentParser(
         description="Qwen-Image MPS - Generate and edit images with Qwen models on Apple Silicon",
