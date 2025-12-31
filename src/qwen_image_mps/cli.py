@@ -18,6 +18,9 @@ warnings.filterwarnings(
     module="torch.amp.autocast_mode",
 )
 
+BASE_MODEL_ID = "Qwen/Qwen-Image-2512"
+EDIT_MODEL_ID = "Qwen/Qwen-Image-Edit-2511"
+
 
 class GenerationStep(Enum):
     """Enum for tracking important steps in the image generation process"""
@@ -710,21 +713,21 @@ def get_gguf_model_path(quantization: str):
     """
     from huggingface_hub import hf_hub_download
 
-    # Map quantization levels to filenames (lowercase 'qwen-image')
+    # Map quantization levels to filenames (lowercase 'qwen-image-2512')
     gguf_files = {
-        "Q2_K": "qwen-image-Q2_K.gguf",
-        "Q3_K_S": "qwen-image-Q3_K_S.gguf",
-        "Q3_K_M": "qwen-image-Q3_K_M.gguf",
-        "Q4_0": "qwen-image-Q4_0.gguf",
-        "Q4_1": "qwen-image-Q4_1.gguf",
-        "Q4_K_S": "qwen-image-Q4_K_S.gguf",
-        "Q4_K_M": "qwen-image-Q4_K_M.gguf",
-        "Q5_0": "qwen-image-Q5_0.gguf",
-        "Q5_1": "qwen-image-Q5_1.gguf",
-        "Q5_K_S": "qwen-image-Q5_K_S.gguf",
-        "Q5_K_M": "qwen-image-Q5_K_M.gguf",
-        "Q6_K": "qwen-image-Q6_K.gguf",
-        "Q8_0": "qwen-image-Q8_0.gguf",
+        "Q2_K": "qwen-image-2512-Q2_K.gguf",
+        "Q3_K_S": "qwen-image-2512-Q3_K_S.gguf",
+        "Q3_K_M": "qwen-image-2512-Q3_K_M.gguf",
+        "Q4_0": "qwen-image-2512-Q4_0.gguf",
+        "Q4_1": "qwen-image-2512-Q4_1.gguf",
+        "Q4_K_S": "qwen-image-2512-Q4_K_S.gguf",
+        "Q4_K_M": "qwen-image-2512-Q4_K_M.gguf",
+        "Q5_0": "qwen-image-2512-Q5_0.gguf",
+        "Q5_1": "qwen-image-2512-Q5_1.gguf",
+        "Q5_K_S": "qwen-image-2512-Q5_K_S.gguf",
+        "Q5_K_M": "qwen-image-2512-Q5_K_M.gguf",
+        "Q6_K": "qwen-image-2512-Q6_K.gguf",
+        "Q8_0": "qwen-image-2512-Q8_0.gguf",
     }
 
     if quantization not in gguf_files:
@@ -735,7 +738,7 @@ def get_gguf_model_path(quantization: str):
 
     try:
         gguf_path = hf_hub_download(
-            repo_id="city96/Qwen-Image-gguf",
+            repo_id="unsloth/Qwen-Image-2512-GGUF",
             filename=filename,
             repo_type="model",
         )
@@ -788,7 +791,9 @@ def load_gguf_pipeline(quantization: str, device, torch_dtype, edit_mode=False):
 
     if edit_mode:
         print("Note: GGUF quantized models for editing are not yet supported.")
-        print("The GGUF models from city96 are for the base Qwen-Image model only.")
+        print(
+            "The Unsloth GGUF models are for the base Qwen/Qwen-Image-2512 model only."
+        )
         return None
     else:
         # Load GGUF model for generation
@@ -818,7 +823,7 @@ def load_gguf_pipeline(quantization: str, device, torch_dtype, edit_mode=False):
                 transformer = QwenImageTransformer2DModel.from_single_file(
                     gguf_path,
                     quantization_config=quantization_config,
-                    config="Qwen/Qwen-Image",
+                    config=BASE_MODEL_ID,
                     subfolder="transformer",
                 )
             except Exception as e1:
@@ -827,7 +832,7 @@ def load_gguf_pipeline(quantization: str, device, torch_dtype, edit_mode=False):
                     # Second try: Load without quantization config
                     transformer = QwenImageTransformer2DModel.from_single_file(
                         gguf_path,
-                        config="Qwen/Qwen-Image",
+                        config=BASE_MODEL_ID,
                         subfolder="transformer",
                     )
                 except Exception as e2:
@@ -843,7 +848,7 @@ def load_gguf_pipeline(quantization: str, device, torch_dtype, edit_mode=False):
             print("Creating pipeline with quantized transformer...")
 
             pipeline = DiffusionPipeline.from_pretrained(
-                "Qwen/Qwen-Image",
+                BASE_MODEL_ID,
                 transformer=transformer,
             )
 
@@ -867,7 +872,7 @@ def load_gguf_pipeline(quantization: str, device, torch_dtype, edit_mode=False):
 
             # Fallback: Use standard transformer and standard text encoder
             pipeline = DiffusionPipeline.from_pretrained(
-                "Qwen/Qwen-Image",
+                BASE_MODEL_ID,
             )
             pipeline = pipeline.to(device)
             # Convert all components to desired dtype for MPS compatibility
@@ -884,7 +889,7 @@ def load_gguf_pipeline(quantization: str, device, torch_dtype, edit_mode=False):
 
             # Fallback: Use standard transformer and standard text encoder
             pipeline = DiffusionPipeline.from_pretrained(
-                "Qwen/Qwen-Image",
+                BASE_MODEL_ID,
             )
             pipeline = pipeline.to(device)
             # Convert all components to desired dtype for MPS compatibility
@@ -1215,7 +1220,7 @@ def generate_image(args):
     try:
         yield emit_event(GenerationStep.INIT)
 
-        model_name = "Qwen/Qwen-Image"
+        model_name = BASE_MODEL_ID
         device, torch_dtype = get_device_and_dtype()
 
         yield emit_event(GenerationStep.LOADING_MODEL)
@@ -1483,7 +1488,7 @@ def edit_image(args) -> None:
         if pipeline is None:
             print("GGUF models for editing may not be available yet.")
             print("Falling back to standard edit model...")
-            pipeline = EditPipeline.from_pretrained("Qwen/Qwen-Image-Edit-2511")
+            pipeline = EditPipeline.from_pretrained(EDIT_MODEL_ID)
             pipeline = pipeline.to(device)
             # Convert all components to desired dtype for MPS compatibility
             pipeline = convert_pipeline_to_dtype(pipeline, torch_dtype)
@@ -1495,7 +1500,7 @@ def edit_image(args) -> None:
             # Edit pipelines don't accept dtype parameter, so we load without it
             # and handle dtype conversion after loading
             pipeline = EditPipeline.from_pretrained(
-                "Qwen/Qwen-Image-Edit-2511",
+                EDIT_MODEL_ID,
                 transformer=rapid_transformer,
             )
             pipeline = pipeline.to(device)
@@ -1507,14 +1512,14 @@ def edit_image(args) -> None:
                 "Warning: Could not load Rapid-AIO transformer, falling back to standard transformer..."
             )
             print("Loading Qwen-Image-Edit model for image editing...")
-            pipeline = EditPipeline.from_pretrained("Qwen/Qwen-Image-Edit-2511")
+            pipeline = EditPipeline.from_pretrained(EDIT_MODEL_ID)
             pipeline = pipeline.to(device)
             # Convert all components to desired dtype for MPS compatibility
             pipeline = convert_pipeline_to_dtype(pipeline, torch_dtype)
     else:
         # Use standard transformer (Rapid-AIO disabled)
         print("Loading Qwen-Image-Edit model with standard transformer...")
-        pipeline = EditPipeline.from_pretrained("Qwen/Qwen-Image-Edit-2511")
+        pipeline = EditPipeline.from_pretrained(EDIT_MODEL_ID)
         pipeline = pipeline.to(device)
         # Convert all components to desired dtype for MPS compatibility
         pipeline = convert_pipeline_to_dtype(pipeline, torch_dtype)
@@ -1708,7 +1713,7 @@ def main() -> None:
         from . import __version__
     except ImportError:
         # Fallback when module is loaded without package context
-        __version__ = "0.7.0"
+        __version__ = "0.7.2"
 
     parser = argparse.ArgumentParser(
         description="Qwen-Image MPS - Generate and edit images with Qwen models on Apple Silicon",

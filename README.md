@@ -1,6 +1,6 @@
 ## Qwen Image (MPS/CUDA/CPU)
 
-Generate and edit images from text prompts using the Hugging Face Diffusers pipeline for `Qwen/Qwen-Image`, with automatic device selection for Apple Silicon (MPS), NVIDIA CUDA, or CPU fallback.
+Generate and edit images from text prompts using the Hugging Face Diffusers pipeline for `Qwen/Qwen-Image-2512`, with automatic device selection for Apple Silicon (MPS), NVIDIA CUDA, or CPU fallback.
 
 ### Features
 - **Auto device selection**: prefers MPS (Apple Silicon), then CUDA, else CPU
@@ -74,7 +74,7 @@ cd qwen-image-mps
 pip install -e .
 ```
 
-**Note:** The first time you run the tool, it will download the 57.7GB model from Hugging Face and store it in your `~/.cache/huggingface/hub/models--Qwen--Qwen-Image` directory.
+**Note:** The first time you run the tool, it will download a large model from Hugging Face and store it in your `~/.cache/huggingface/hub/models--Qwen--Qwen-Image-2512` directory.
 
 ## Usage
 
@@ -248,7 +248,7 @@ If using the direct script with uv, replace `qwen-image-mps` with `uv run qwen-i
 ## What the script does
 
 ### Image Generation
-- Loads `Qwen/Qwen-Image` via `diffusers.DiffusionPipeline`
+- Loads `Qwen/Qwen-Image-2512` via `diffusers.DiffusionPipeline`
 - Selects device and dtype:
   - MPS: `bfloat16`
   - CUDA: `bfloat16`
@@ -260,7 +260,7 @@ If using the direct script with uv, replace `qwen-image-mps` with `uv run qwen-i
 - Prints the full path of the saved image
 
 ### Image Editing
-- Loads `Qwen/Qwen-Image-Edit-2509` via `QwenImageEditPlusPipeline` (falling back to `QwenImageEditPipeline` when needed)
+- Loads `Qwen/Qwen-Image-Edit-2511` via `QwenImageEditPlusPipeline` (falling back to `QwenImageEditPipeline` when needed)
 - Uses Rapid-AIO transformer ([`linoyts/Qwen-Image-Edit-Rapid-AIO`](https://huggingface.co/linoyts/Qwen-Image-Edit-Rapid-AIO)) for optimized fast inference
 - Takes an existing image and editing instructions as input
 - Applies transformations while preserving the original structure

@@ -768,10 +768,11 @@ def build_interface() -> gr.Blocks:
             with gr.Column(scale=10):
                 gr.Markdown(
                     "## Qwen-Image Studio\n"
-                    "Generate and edit images using Qwen models with Apple Silicon (MPS), "
-                    "CUDA, or CPU backends. Generate text-to-image or edit images with prompts. "
-                    "Fast/Ultra-fast modes use Lightning LoRA for regular edits or Rapid-AIO for anime; "
-                    "Batman mode adds LEGO Batman photobombs.",
+                    "Generate and edit images using Qwen-Image-2512 (generation) and "
+                    "Qwen-Image-Edit-2511 (editing) with Apple Silicon (MPS), CUDA, or CPU backends. "
+                    "Generate text-to-image or edit images with prompts. Fast/Ultra-fast generation "
+                    "uses Lightning LoRA, while editing uses Rapid-AIO and optional Photo-to-Anime "
+                    "LoRA; Batman mode adds LEGO Batman photobombs.",
                 )
             with gr.Column(scale=0, min_width=50):
                 theme_toggle = gr.Button(
