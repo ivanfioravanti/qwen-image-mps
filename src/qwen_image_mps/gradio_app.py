@@ -1234,7 +1234,33 @@ def launch(
 
 
 def main():
-    launch()
+    import argparse
+    parser = argparse.ArgumentParser(
+        description="Launch Qwen-Image Gradio interface"
+    )
+    parser.add_argument(
+        '--share',
+        action='store_true',
+        help='Create a public shareable link'
+    )
+    parser.add_argument(
+        '--server-name',
+        type=str,
+        default=None,
+        help='Server name/host to bind to (e.g., "0.0.0.0" for all interfaces)'
+    )
+    parser.add_argument(
+        '--server-port',
+        type=int,
+        default=None,
+        help='Server port to bind to'
+    )
+    args = parser.parse_args()
+    launch(
+        server_name=args.server_name,
+        server_port=args.server_port,
+        share=args.share
+    )
 
 
 __all__ = ["build_interface", "launch", "main"]
