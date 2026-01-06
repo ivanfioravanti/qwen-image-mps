@@ -5,9 +5,11 @@ __version__ = "0.7.2"
 from .cli import (  # noqa: E402
     build_edit_parser,
     build_generate_parser,
+    build_layer_parser,
     edit_image,
     generate_image,
     get_lora_path,
+    layer_image,
     main,
     merge_lora_from_safetensors,
 )
@@ -37,8 +39,10 @@ __all__ = [
     "main",
     "build_generate_parser",
     "build_edit_parser",
+    "build_layer_parser",
     "generate_image",
     "edit_image",
+    "layer_image",
     "get_lora_path",
     "merge_lora_from_safetensors",
     "launch_gradio",

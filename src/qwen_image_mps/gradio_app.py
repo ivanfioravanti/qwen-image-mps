@@ -11,7 +11,7 @@ from typing import Generator, List, Sequence
 import gradio as gr
 from PIL import Image
 
-from .cli import GenerationStep, edit_image, generate_image
+from .cli import GenerationStep, edit_image, generate_image, layer_image
 
 
 class LoggingStream:
@@ -637,6 +637,94 @@ def run_edit(  # pragma: no cover - exercised via manual UI usage
     yield edited_image, final_log
 
 
+def run_layer(
+    input_image,
+    prompt: str,
+    negative_prompt: str,
+    steps: float,
+    seed,
+    num_layers: float,
+    fast: bool,
+    ultra_fast: bool,
+    cfg_scale,
+    output_dir: str,
+):
+    """Decompose an image into multiple transparent layers."""
+    if not input_image:
+        raise gr.Error("Please upload an image to decompose into layers.")
+
+    # Get the file path from the input
+    if isinstance(input_image, dict):
+        input_path = input_image.get("name")
+    else:
+        input_path = input_image
+
+    if not input_path:
+        raise gr.Error("Could not read uploaded image path.")
+
+    # Ensure steps is never None
+    steps_value = int(steps) if steps is not None else 50
+    num_layers_value = int(num_layers) if num_layers is not None else 4
+
+    args = SimpleNamespace(
+        input=input_path,
+        prompt=_normalize_string(prompt),
+        negative_prompt=_normalize_string(negative_prompt) or " ",
+        steps=steps_value,
+        seed=_normalize_optional_int(seed),
+        layers=num_layers_value,
+        cfg_scale=_normalize_optional_float(cfg_scale),
+        cfg_norm=True,
+        use_en_prompt=True,
+        output_dir=_coerce_output_dir(output_dir),
+        zip=False,
+        fast=bool(fast),
+        ultra_fast=bool(ultra_fast),
+    )
+
+    logs: List[str] = []
+    original_stdout = sys.stdout
+    original_stderr = sys.stderr
+    saved_paths = []
+
+    try:
+        # Replace stdout/stderr with logging streams
+        logging_stdout = LoggingStream(original_stdout, logs)
+        logging_stderr = LoggingStream(original_stderr, logs, prefix="[stderr] ")
+        sys.stdout = logging_stdout
+        sys.stderr = logging_stderr
+
+        try:
+            saved_paths = layer_image(args)
+
+            # Yield log updates
+            if logs:
+                log_text = "\n".join(logs)
+                yield [], log_text
+        finally:
+            # Restore original streams
+            sys.stdout = original_stdout
+            sys.stderr = original_stderr
+            logging_stdout.flush()
+            logging_stderr.flush()
+    except Exception as exc:  # pragma: no cover
+        logs.append(f"Error: {exc}")
+        log_text = "\n".join(logs) if logs else str(exc)
+        yield [], log_text
+        raise gr.Error(str(exc)) from exc
+
+    if not saved_paths:
+        raise gr.Error("Layer decomposition failed.")
+
+    # Load and yield the layer images
+    try:
+        layer_images = _load_images(saved_paths)
+        final_log = "\n".join(logs) if logs else f"Layers saved to: {saved_paths[0]}"
+        yield layer_images, final_log
+    except Exception as e:
+        yield [], f"Error loading layers: {e}"
+
+
 # Custom CSS for the Gradio interface
 CUSTOM_CSS = """
 .theme-toggle-btn {
@@ -1208,6 +1296,177 @@ def build_interface() -> gr.Blocks:
                     output_dir_edit,
                 ],
                 outputs=[edited_preview, edit_log],
+            )
+
+        with gr.Tab("Layer"):
+            with gr.Row():
+                with gr.Column(scale=1):
+                    input_layer_image = gr.File(
+                        label="Upload image",
+                        file_types=["image"],
+                        file_count="single",
+                    )
+                    layer_preview = gr.Image(
+                        label="Uploaded image preview",
+                        interactive=False,
+                    )
+                    prompt_layer = gr.Textbox(
+                        label="Prompt (optional)",
+                        placeholder="Describe the image content (auto-generated if empty)",
+                        lines=2,
+                    )
+                    negative_prompt_layer = gr.Textbox(
+                        label="Negative prompt",
+                        placeholder="Elements to exclude",
+                        lines=2,
+                    )
+                    with gr.Row():
+                        steps_layer = gr.Slider(
+                            label="Steps",
+                            minimum=4,
+                            maximum=60,
+                            step=1,
+                            value=50,
+                        )
+                        num_layers = gr.Slider(
+                            label="Number of layers",
+                            minimum=2,
+                            maximum=10,
+                            step=1,
+                            value=4,
+                        )
+                    with gr.Row():
+                        fast_layer = gr.Checkbox(label="Fast (Lightning 8-step)")
+                        ultra_fast_layer = gr.Checkbox(
+                            label="Ultra-fast (Lightning 4-step)"
+                        )
+                    seed_layer = gr.Number(label="Seed (optional)", precision=0)
+                    cfg_scale_layer = gr.Number(
+                        label="CFG scale",
+                        precision=1,
+                        value=4.0,
+                    )
+                    output_dir_layer = gr.Textbox(
+                        label="Output directory",
+                        value="output",
+                    )
+                    steps_layer_state = gr.State(50)
+                with gr.Column(scale=1):
+                    layer_button = gr.Button(
+                        "Decompose into Layers",
+                        variant="primary",
+                        elem_classes=["generate-button-full-width"],
+                    )
+                    layer_gallery = gr.Gallery(
+                        label="Generated layers",
+                        columns=2,
+                        rows=2,
+                        height=500,
+                        preview=True,
+                        show_label=True,
+                        elem_classes=["generated-images-gallery"],
+                    )
+                    layer_log = gr.Textbox(label="Status", lines=8)
+
+            def _handle_layer_file_upload(file):
+                """Handle file upload for layer tab."""
+                if not file:
+                    return None, []
+
+                if isinstance(file, dict):
+                    file_path = file.get("name")
+                else:
+                    file_path = file
+
+                if not file_path:
+                    return None, []
+
+                try:
+                    images = _load_images([file_path])
+                    return images[0], [file_path]
+                except Exception:
+                    return None, []
+
+            def _sync_layer_steps(value):
+                """Sync steps value."""
+                try:
+                    return int(value) if value is not None else 50
+                except (TypeError, ValueError):
+                    return 50
+
+            def _safe_layer_fast_toggle(fast_val, ultra_val):
+                """Handle Fast checkbox interactions for layer tab."""
+                fast_val = bool(fast_val) if fast_val is not None else False
+                ultra_val = bool(ultra_val) if ultra_val is not None else False
+
+                if fast_val:
+                    return True, False, 8, 1.0, 8
+                if ultra_val:
+                    return False, True, 4, 1.0, 4
+                return False, False, 50, 4.0, 50
+
+            def _safe_layer_ultra_toggle(fast_val, ultra_val):
+                """Handle Ultra-fast checkbox interactions for layer tab."""
+                fast_val = bool(fast_val) if fast_val is not None else False
+                ultra_val = bool(ultra_val) if ultra_val is not None else False
+
+                if ultra_val:
+                    return False, True, 4, 1.0, 4
+                if fast_val:
+                    return True, False, 8, 1.0, 8
+                return False, False, 50, 4.0, 50
+
+            input_layer_image.upload(
+                fn=_handle_layer_file_upload,
+                inputs=[input_layer_image],
+                outputs=[layer_preview, gr.State([])],
+            )
+
+            steps_layer.change(
+                fn=_sync_layer_steps,
+                inputs=[steps_layer],
+                outputs=[steps_layer_state],
+            )
+
+            fast_layer.change(
+                fn=_safe_layer_fast_toggle,
+                inputs=[fast_layer, ultra_fast_layer],
+                outputs=[
+                    fast_layer,
+                    ultra_fast_layer,
+                    steps_layer,
+                    cfg_scale_layer,
+                    steps_layer_state,
+                ],
+            )
+
+            ultra_fast_layer.change(
+                fn=_safe_layer_ultra_toggle,
+                inputs=[fast_layer, ultra_fast_layer],
+                outputs=[
+                    fast_layer,
+                    ultra_fast_layer,
+                    steps_layer,
+                    cfg_scale_layer,
+                    steps_layer_state,
+                ],
+            )
+
+            layer_button.click(
+                fn=run_layer,
+                inputs=[
+                    input_layer_image,
+                    prompt_layer,
+                    negative_prompt_layer,
+                    steps_layer_state,
+                    seed_layer,
+                    num_layers,
+                    fast_layer,
+                    ultra_fast_layer,
+                    cfg_scale_layer,
+                    output_dir_layer,
+                ],
+                outputs=[layer_gallery, layer_log],
             )
 
         # Note: In Gradio 6.x, automatic theme setting on load may not work
